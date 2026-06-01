@@ -1,0 +1,395 @@
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f7f4f0;
+    --surface: #ffffff;
+    --red: #d63031;
+    --red-light: #fff0f0;
+    --red-mid: #ffd5d5;
+    --green: #00897b;
+    --green-light: #e8f5f3;
+    --orange: #e17055;
+    --orange-light: #fff4f0;
+    --blue: #2d6a9f;
+    --blue-light: #eaf2fb;
+    --ink: #1a1410;
+    --muted: #7a6f65;
+    --border: #e0d8cf;
+    --serif: 'Lora', Georgia, serif;
+    --display: 'Syne', sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--display);
+    min-height: 100vh;
+  }
+
+  /* HEADER */
+  header {
+    background: var(--red);
+    padding: 2rem 2.5rem;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+
+  .header-inner {
+    max-width: 900px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .logo-cross {
+    width: 36px; height: 36px;
+    background: white;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .logo-cross::before,
+  .logo-cross::after {
+    content: '';
+    position: absolute;
+    background: var(--red);
+    border-radius: 2px;
+  }
+
+  .logo-cross { position: relative; }
+
+  .cross-h {
+    position: absolute;
+    width: 20px; height: 7px;
+    background: var(--red);
+    border-radius: 2px;
+  }
+
+  .cross-v {
+    position: absolute;
+    width: 7px; height: 20px;
+    background: var(--red);
+    border-radius: 2px;
+  }
+
+  .logo-text {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: white;
+    letter-spacing: 0.02em;
+  }
+
+  .logo-sub {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: rgba(255,255,255,0.7);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    display: block;
+    margin-top: 2px;
+  }
+
+  .search-wrap {
+    flex: 1;
+    max-width: 420px;
+    position: relative;
+  }
+
+  .search-wrap input {
+    width: 100%;
+    padding: 0.75rem 1rem 0.75rem 2.75rem;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.15);
+    color: white;
+    font-family: var(--display);
+    font-size: 0.875rem;
+    outline: none;
+    transition: background 0.2s;
+  }
+
+  .search-wrap input::placeholder { color: rgba(255,255,255,0.6); }
+  .search-wrap input:focus { background: rgba(255,255,255,0.25); }
+
+  .search-icon {
+    position: absolute;
+    left: 0.85rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: rgba(255,255,255,0.7);
+    font-size: 1rem;
+  }
+
+  /* DISCLAIMER */
+  .disclaimer {
+    background: #fff8e1;
+    border-left: 4px solid #f9a825;
+    padding: 0.85rem 1.5rem;
+    max-width: 900px;
+    margin: 1.5rem auto;
+    border-radius: 0 6px 6px 0;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .disclaimer p {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: #6d4c00;
+    letter-spacing: 0.05em;
+    line-height: 1.6;
+  }
+
+  .disclaimer-icon { font-size: 1.2rem; flex-shrink: 0; }
+
+  /* CATEGORIES */
+  .main-content {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 1.5rem 4rem;
+  }
+
+  .categories {
+    display: flex;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 2rem;
+  }
+
+  .cat-btn {
+    padding: 0.45rem 1rem;
+    border-radius: 20px;
+    border: 1.5px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .cat-btn:hover,
+  .cat-btn.active {
+    background: var(--red);
+    border-color: var(--red);
+    color: white;
+  }
+
+  /* RESULTS COUNT */
+  .results-info {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.1em;
+    margin-bottom: 1.25rem;
+    text-transform: uppercase;
+  }
+
+  /* GUIDE CARDS */
+  .guides-grid {
+    display: grid;
+    gap: 1rem;
+  }
+
+  .guide-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: box-shadow 0.2s, transform 0.2s;
+  }
+
+  .guide-card:hover {
+    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    transform: translateY(-1px);
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.25rem 1.5rem;
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .card-icon {
+    width: 44px; height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    flex-shrink: 0;
+  }
+
+  .card-info { flex: 1; }
+
+  .card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 0.2rem;
+  }
+
+  .card-subtitle {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .card-badge {
+    font-family: var(--mono);
+    font-size: 0.55rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 0.25rem 0.7rem;
+    border-radius: 20px;
+    flex-shrink: 0;
+  }
+
+  .badge-urgent { background: #ffe0e0; color: var(--red); }
+  .badge-common { background: var(--green-light); color: var(--green); }
+  .badge-caution { background: var(--orange-light); color: var(--orange); }
+  .badge-info { background: var(--blue-light); color: var(--blue); }
+
+  .card-toggle {
+    font-size: 1.2rem;
+    color: var(--muted);
+    transition: transform 0.3s;
+    flex-shrink: 0;
+    margin-left: 0.5rem;
+  }
+
+  .guide-card.open .card-toggle { transform: rotate(45deg); }
+
+  .card-body {
+    display: none;
+    padding: 0 1.5rem 1.5rem;
+    border-top: 1px solid var(--border);
+  }
+
+  .guide-card.open .card-body { display: block; }
+
+  .steps-label {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: var(--muted);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin: 1.25rem 0 1rem;
+  }
+
+  .steps-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .step-item {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .step-num {
+    width: 26px; height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    font-weight: 400;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .step-text {
+    font-family: var(--serif);
+    font-size: 0.9rem;
+    color: var(--ink);
+    line-height: 1.7;
+    padding-top: 3px;
+  }
+
+  .step-text strong { font-weight: 500; }
+
+  .warning-box {
+    margin-top: 1.25rem;
+    padding: 0.85rem 1rem;
+    border-radius: 6px;
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+  }
+
+  .warning-box p {
+    font-family: var(--mono);
+    font-size: 0.65rem;
+    line-height: 1.7;
+    letter-spacing: 0.03em;
+  }
+
+  .warning-box .w-icon { font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+
+  /* NO RESULTS */
+  .no-results {
+    text-align: center;
+    padding: 4rem 2rem;
+    display: none;
+  }
+
+  .no-results p {
+    font-family: var(--serif);
+    font-style: italic;
+    font-size: 1.1rem;
+    color: var(--muted);
+  }
+
+  /* FOOTER */
+  .footer-note {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    border-top: 1px solid var(--border);
+    text-align: center;
+  }
+
+  .footer-note p {
+    font-family: var(--mono);
+    font-size: 0.6rem;
+    color: var(--muted);
+    letter-spacing: 0.08em;
+    line-height: 1.8;
+  }
+
+  /* Animations */
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .guide-card {
+    animation: fadeIn 0.4s ease forwards;
+  }
