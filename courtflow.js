@@ -1,0 +1,1769 @@
+const STORAGE='courtflow_data';
+const COLORS=['#2d6a4f','#40916c','#e76f51','#1a6598','#9c27b0','#ff5722','#607d8b','#795548','#009688','#673ab7'];
+var cmTeamA=[], cmTeamB=[]; // Create Match modal state
+let db=JSON.parse(localStorage.getItem(STORAGE)||'{}');
+if(!db.users)db.users=[];if(!db.sessions)db.sessions=[];if(!db.events)db.events=[];if(!db.courts)db.courts=[];if(!db.currentUser)db.currentUser=null;
+function saveDB(){localStorage.setItem(STORAGE,JSON.stringify(db));}
+function showToast(msg,type='success'){const t=document.getElementById('toast');t.textContent=msg;t.style.background=type==='error'?'#d63031':type==='info'?'#1a6598':'#1a6b3c';t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);}
+function getInitials(n){return n.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);}
+function getColor(n){let h=0;for(let c of n)h+=c.charCodeAt(0);return COLORS[h%COLORS.length];}
+
+// PAGES
+function showPage(id){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  const el=document.getElementById(id);if(el)el.classList.add('active');
+  document.getElementById('app-shell').classList.remove('active');
+}
+function showApp(){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('app-shell').classList.add('active');
+  try{ renderAll(); }catch(e){ console.error('renderAll error:',e); }
+}
+
+// AUTH
+function login(){
+  const email=document.getElementById('loginEmail').value.trim();
+  const pass=document.getElementById('loginPassword').value;
+  if(!email&&!pass){showToast('Please enter your email and password','error');return;}
+  if(!email){showToast('Please enter your email','error');return;}
+  if(!pass){showToast('Please enter your password','error');return;}
+  const user=db.users.find(u=>u.email===email&&u.password===pass);
+  if(!user){showToast('Invalid email or password','error');return;}
+  db.currentUser=user.id;saveDB();initApp();showApp();showToast(`Welcome back, ${user.name}! 🏓`);
+}
+
+function signup(){
+  const name=document.getElementById('signupName').value.trim();
+  const email=document.getElementById('signupEmail').value.trim();
+  const pass=document.getElementById('signupPassword').value;
+  if(!name||!email||!pass){showToast('Please fill in all fields','error');return;}
+  if(db.users.find(u=>u.email===email)){showToast('Email already registered','error');return;}
+  const user={id:Date.now(),name,email,password:pass,roomCode:Math.random().toString(36).substring(2,8).toUpperCase(),wins:0,losses:0,points:0,matchesPlayed:0,createdAt:new Date().toISOString()};
+  db.users.push(user);db.currentUser=user.id;saveDB();initApp();showApp();showToast(`Welcome to CourtFlow, ${name}! 🏓`);
+}
+
+function loginWithGoogle(){
+  // Show a name/email prompt since we can't use real Google OAuth in a local HTML file
+  openGoogleModal();
+}
+
+function openGoogleModal(){
+  // Remove existing modal if any
+  const existing=document.getElementById('googleAuthModal');
+  if(existing)existing.remove();
+  const modal=document.createElement('div');
+  modal.id='googleAuthModal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);';
+  modal.innerHTML=`
+    <div style="background:white;border-radius:16px;padding:2rem;max-width:380px;width:100%;margin:1rem;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem;">
+        <svg width="24" height="24" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z"/><path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 013.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 000 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 00.957 4.958L3.964 6.29C4.672 4.163 6.656 3.58 9 3.58z"/></svg>
+        <div>
+          <div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:#1a1610;">Sign in with Google</div>
+          <div style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:#7a7060;margin-top:1px;">Enter your details to continue</div>
+        </div>
+      </div>
+      <div style="margin-bottom:1rem;">
+        <label style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#7a7060;letter-spacing:0.15em;text-transform:uppercase;display:block;margin-bottom:0.5rem;">Full Name</label>
+        <input type="text" id="googleName" placeholder="Your name" style="width:100%;padding:0.8rem 1rem;border:1.5px solid #e2ddd4;border-radius:8px;font-family:'Instrument Sans',sans-serif;font-size:0.9rem;outline:none;" onfocus="this.style.borderColor='#1a6b3c'" onblur="this.style.borderColor='#e2ddd4'">
+      </div>
+      <div style="margin-bottom:1.5rem;">
+        <label style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#7a7060;letter-spacing:0.15em;text-transform:uppercase;display:block;margin-bottom:0.5rem;">Gmail Address</label>
+        <input type="email" id="googleEmail" placeholder="you@gmail.com" style="width:100%;padding:0.8rem 1rem;border:1.5px solid #e2ddd4;border-radius:8px;font-family:'Instrument Sans',sans-serif;font-size:0.9rem;outline:none;" onfocus="this.style.borderColor='#1a6b3c'" onblur="this.style.borderColor='#e2ddd4'">
+      </div>
+      <button onclick="confirmGoogleSignIn()" style="width:100%;padding:0.9rem;background:#1a6b3c;color:white;border:none;border-radius:8px;font-family:'Instrument Sans',sans-serif;font-size:0.9rem;font-weight:500;cursor:pointer;transition:background 0.2s;" onmouseover="this.style.background='#2d8a55'" onmouseout="this.style.background='#1a6b3c'">Continue with Google</button>
+      <button onclick="document.getElementById('googleAuthModal').remove()" style="width:100%;padding:0.75rem;background:transparent;border:1.5px solid #e2ddd4;border-radius:8px;font-family:'Instrument Sans',sans-serif;font-size:0.875rem;color:#7a7060;cursor:pointer;margin-top:0.5rem;">Cancel</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click',e=>{if(e.target===modal)modal.remove();});
+  // Focus name input
+  setTimeout(()=>document.getElementById('googleName')?.focus(),100);
+  // Enter key support
+  modal.addEventListener('keydown',e=>{if(e.key==='Enter')confirmGoogleSignIn();});
+}
+
+function confirmGoogleSignIn(){
+  const name=document.getElementById('googleName')?.value.trim();
+  const email=document.getElementById('googleEmail')?.value.trim();
+  if(!name){showToast('Please enter your name','error');return;}
+  if(!email||!email.includes('@')){showToast('Please enter a valid email','error');return;}
+  document.getElementById('googleAuthModal')?.remove();
+  let user=db.users.find(u=>u.email===email);
+  if(!user){
+    user={id:Date.now(),name,email,password:'google',roomCode:Math.random().toString(36).substring(2,8).toUpperCase(),wins:0,losses:0,points:0,matchesPlayed:0,createdAt:new Date().toISOString()};
+    db.users.push(user);showToast(`Account created! Welcome, ${name} 🏓`);
+  } else {if(user.name!==name)user.name=name;showToast(`Welcome back, ${name}! 🏓`);}
+  db.currentUser=user.id;saveDB();initApp();showApp();
+}
+
+function openPhoneModal(){
+  const existing=document.getElementById('phoneAuthModal');if(existing)existing.remove();
+  const modal=document.createElement('div');
+  modal.id='phoneAuthModal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);';
+  modal.innerHTML=`
+    <div style="background:white;border-radius:16px;padding:2rem;max-width:380px;width:100%;margin:1rem;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.5rem;">
+        <div style="width:40px;height:40px;background:#e8f5ee;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;">📱</div>
+        <div><div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:#1a1610;">Phone Sign In</div><div style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:#7a7060;margin-top:1px;">Enter your name and phone number</div></div>
+      </div>
+      <div style="margin-bottom:1rem;">
+        <label style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#7a7060;letter-spacing:0.15em;text-transform:uppercase;display:block;margin-bottom:0.5rem;">Full Name</label>
+        <input type="text" id="phoneName" placeholder="Your name" style="width:100%;padding:0.8rem 1rem;border:1.5px solid #e2ddd4;border-radius:8px;font-family:'Instrument Sans',sans-serif;font-size:0.9rem;outline:none;" onfocus="this.style.borderColor='#1a6b3c'" onblur="this.style.borderColor='#e2ddd4'">
+      </div>
+      <div style="margin-bottom:1.5rem;">
+        <label style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#7a7060;letter-spacing:0.15em;text-transform:uppercase;display:block;margin-bottom:0.5rem;">Phone Number</label>
+        <div style="display:flex;gap:0.5rem;">
+          <select id="phoneCountry" style="padding:0.8rem 0.6rem;border:1.5px solid #e2ddd4;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:0.75rem;outline:none;background:white;color:#1a1610;cursor:pointer;">
+            <option value="+63">🇵🇭 +63</option>
+            <option value="+1">🇺🇸 +1</option>
+            <option value="+44">🇬🇧 +44</option>
+            <option value="+61">🇦🇺 +61</option>
+            <option value="+81">🇯🇵 +81</option>
+            <option value="+65">🇸🇬 +65</option>
+            <option value="+60">🇲🇾 +60</option>
+            <option value="+66">🇹🇭 +66</option>
+            <option value="+62">🇮🇩 +62</option>
+            <option value="+84">🇻🇳 +84</option>
+          </select>
+          <input type="tel" id="phoneNumber" placeholder="917 114 0170" style="flex:1;padding:0.8rem 1rem;border:1.5px solid #e2ddd4;border-radius:8px;font-family:'Instrument Sans',sans-serif;font-size:0.9rem;outline:none;" onfocus="this.style.borderColor='#1a6b3c'" onblur="this.style.borderColor='#e2ddd4'">
+        </div>
+      </div>
+      <button onclick="confirmPhoneSignIn()" style="width:100%;padding:0.9rem;background:#1a6b3c;color:white;border:none;border-radius:8px;font-family:'Instrument Sans',sans-serif;font-size:0.9rem;font-weight:500;cursor:pointer;" onmouseover="this.style.background='#2d8a55'" onmouseout="this.style.background='#1a6b3c'">Continue</button>
+      <button onclick="document.getElementById('phoneAuthModal').remove()" style="width:100%;padding:0.75rem;background:transparent;border:1.5px solid #e2ddd4;border-radius:8px;font-family:'Instrument Sans',sans-serif;font-size:0.875rem;color:#7a7060;cursor:pointer;margin-top:0.5rem;">Cancel</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click',e=>{if(e.target===modal)modal.remove();});
+  setTimeout(()=>document.getElementById('phoneName')?.focus(),100);
+  modal.addEventListener('keydown',e=>{if(e.key==='Enter')confirmPhoneSignIn();});
+}
+
+function confirmPhoneSignIn(){
+  const name=document.getElementById('phoneName')?.value.trim();
+  const country=document.getElementById('phoneCountry')?.value;
+  const number=document.getElementById('phoneNumber')?.value.trim().replace(/\s/g,'');
+  if(!name){showToast('Please enter your name','error');return;}
+  if(!number||number.length<7){showToast('Please enter a valid phone number','error');return;}
+  const phone=`${country}${number}`;
+  document.getElementById('phoneAuthModal')?.remove();
+  let user=db.users.find(u=>u.phone===phone);
+  if(!user){
+    user={id:Date.now(),name,phone,email:`${number}@phone.courtflow`,password:'phone',
+      roomCode:Math.random().toString(36).substring(2,8).toUpperCase(),
+      wins:0,losses:0,points:0,matchesPlayed:0,createdAt:new Date().toISOString()};
+    db.users.push(user);showToast(`Welcome to CourtFlow, ${name}! 🏓`);
+  } else {if(user.name!==name)user.name=name;showToast(`Welcome back, ${name}! 🏓`);}
+  db.currentUser=user.id;saveDB();initApp();showApp();
+}
+
+function loginAsGuest(){
+  const existing=document.getElementById('guestModal');if(existing)existing.remove();
+  const modal=document.createElement('div');
+  modal.id='guestModal';
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:500;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);';
+  modal.innerHTML=`
+    <div style="background:white;border-radius:16px;padding:2rem;max-width:380px;width:100%;margin:1rem;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;">
+        <div style="width:40px;height:40px;background:#f2efe8;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.3rem;flex-shrink:0;">👤</div>
+        <div><div style="font-family:'Syne',sans-serif;font-size:1.1rem;font-weight:800;color:#1a1610;">Continue as Guest</div><div style="font-family:'JetBrains Mono',monospace;font-size:0.58rem;color:#7a7060;margin-top:1px;">Just enter a display name</div></div>
+      </div>
+      <div style="background:#fef9ee;border:1px solid #fcd34d;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1.25rem;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#8a5c00;line-height:1.7;">⚠️ Guest accounts are saved on this device only. Create a full account to save progress across devices.</div>
+      </div>
+      <div style="margin-bottom:1.5rem;">
+        <label style="font-family:'JetBrains Mono',monospace;font-size:0.6rem;color:#7a7060;letter-spacing:0.15em;text-transform:uppercase;display:block;margin-bottom:0.5rem;">Display Name</label>
+        <input type="text" id="guestName" placeholder="e.g. Player1, Chiko, Ivan..." maxlength="20" style="width:100%;padding:0.8rem 1rem;border:1.5px solid #e2ddd4;border-radius:8px;font-family:'Instrument Sans',sans-serif;font-size:0.9rem;outline:none;" onfocus="this.style.borderColor='#1a6b3c'" onblur="this.style.borderColor='#e2ddd4'">
+      </div>
+      <button onclick="confirmGuestLogin()" style="width:100%;padding:0.9rem;background:#1a6b3c;color:white;border:none;border-radius:8px;font-family:'Instrument Sans',sans-serif;font-size:0.9rem;font-weight:500;cursor:pointer;" onmouseover="this.style.background='#2d8a55'" onmouseout="this.style.background='#1a6b3c'">Enter as Guest</button>
+      <button onclick="document.getElementById('guestModal').remove()" style="width:100%;padding:0.75rem;background:transparent;border:1.5px solid #e2ddd4;border-radius:8px;font-family:'Instrument Sans',sans-serif;font-size:0.875rem;color:#7a7060;cursor:pointer;margin-top:0.5rem;">Cancel</button>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click',e=>{if(e.target===modal)modal.remove();});
+  setTimeout(()=>document.getElementById('guestName')?.focus(),100);
+  modal.addEventListener('keydown',e=>{if(e.key==='Enter')confirmGuestLogin();});
+}
+
+function confirmGuestLogin(){
+  const name=document.getElementById('guestName')?.value.trim();
+  if(!name){showToast('Please enter a display name','error');return;}
+  document.getElementById('guestModal')?.remove();
+  const user={id:Date.now(),name,email:`guest_${Date.now()}@guest.courtflow`,password:'guest',isGuest:true,
+    roomCode:Math.random().toString(36).substring(2,8).toUpperCase(),
+    wins:0,losses:0,points:0,matchesPlayed:0,createdAt:new Date().toISOString()};
+  db.users.push(user);db.currentUser=user.id;saveDB();initApp();showApp();
+  showToast(`Welcome, ${name}! 👤 You're in as a guest`);
+}
+function logout(){db.currentUser=null;saveDB();showPage('page-login');showToast('Signed out');}
+function getCurrentUser(){return db.users.find(u=>u.id===db.currentUser);}
+
+// JOIN
+function nextDigit(el,nextId){if(el.value)document.getElementById(nextId)?.focus();}
+function prevDigit(e,el,prevId){if(e.key==='Backspace'&&!el.value)document.getElementById(prevId)?.focus();}
+function joinWithCode(){
+  const code=['c1','c2','c3','c4','c5','c6'].map(id=>document.getElementById(id).value).join('').toUpperCase();
+  if(code.length<6){showToast('Enter the full 6-digit code','error');return;}
+  const session=db.sessions.find(s=>s.roomCode===code);
+  if(!session){showToast('Room code not found!','error');return;}
+  showToast(`Found "${session.name}"! Sign in to join.`,'info');
+  setTimeout(()=>showPage('page-login'),1500);
+}
+
+// INIT
+function initApp(){
+  const user=getCurrentUser();if(!user)return;
+  const set=(id,val)=>{const el=document.getElementById(id);if(el)el.textContent=val;};
+  const setVal=(id,val)=>{const el=document.getElementById(id);if(el)el.value=val;};
+  const setStyle=(id,prop,val)=>{const el=document.getElementById(id);if(el)el.style[prop]=val;};
+  set('sidebarName',user.name);
+  set('sidebarAvatar',getInitials(user.name));
+  setStyle('sidebarAvatar','background',getColor(user.name));
+  set('sidebarRole',user.isGuest?'👤 Guest':user.phone?'📱 Phone User':'Organizer');
+  set('userRoomCode',user.roomCode||'------');
+  set('profileAvatar',getInitials(user.name));
+  setStyle('profileAvatar','background',getColor(user.name));
+  set('profileName',user.name);
+  set('profileEmail',user.email||user.phone||'Guest');
+  setVal('profileNameInput',user.name);
+  setVal('profileEmailInput',user.email||'');
+  const h=new Date().getHours();
+  const g=h<12?'Good morning':h<17?'Good afternoon':'Good evening';
+  set('dashGreeting',`${g}, ${user.name.split(' ')[0]}! 👋`);
+  renderProfileStats();
+}
+
+function renderProfileStats(){
+  const user=getCurrentUser();if(!user)return;
+  const mySessions=db.sessions.filter(s=>s.ownerId===user.id);
+  const allMatches=mySessions.flatMap(s=>s.matches);
+  const completed=allMatches.filter(m=>m.status==='completed');
+  document.getElementById('profileStats').innerHTML=`
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1rem;text-align:center;"><div style="font-family:var(--display);font-size:1.5rem;font-weight:800;">${mySessions.length}</div><div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);letter-spacing:0.1em;margin-top:4px;">SESSIONS</div></div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1rem;text-align:center;"><div style="font-family:var(--display);font-size:1.5rem;font-weight:800;">${completed.length}</div><div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);letter-spacing:0.1em;margin-top:4px;">MATCHES</div></div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1rem;text-align:center;"><div style="font-family:var(--display);font-size:1.5rem;font-weight:800;">${new Set(mySessions.flatMap(s=>s.players.map(p=>p.name))).size}</div><div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);letter-spacing:0.1em;margin-top:4px;">PLAYERS</div></div>
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:1rem;text-align:center;"><div style="font-family:var(--display);font-size:1.5rem;font-weight:800;">${mySessions.filter(s=>s.status==='active').length}</div><div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);letter-spacing:0.1em;margin-top:4px;">ACTIVE</div></div>
+  `;
+}
+
+// VIEWS
+let currentView='dashboard',currentSession=null;
+function switchView(view){
+  document.querySelectorAll('[id^="view-"]').forEach(v=>v.style.display='none');
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  const el=document.getElementById(`view-${view}`);if(el)el.style.display='block';
+  document.querySelectorAll('.nav-item').forEach(n=>{if(n.getAttribute('onclick')?.includes(`'${view}'`))n.classList.add('active');});
+  currentView=view;
+  if(view==='sessions')renderSessions();
+  if(view==='leaderboard')renderLeaderboard();
+  if(view==='calendar')renderCalendar();
+  if(view==='courts')renderCourts();
+  if(view==='players')renderAllPlayers();
+  if(view==='profile'){renderProfileStats();}
+}
+function switchInnerTab(tabId){
+  document.querySelectorAll('.inner-tab-content').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.inner-tab').forEach(t=>t.classList.remove('active'));
+  const el=document.getElementById(tabId);if(el)el.classList.add('active');
+  document.querySelectorAll('.inner-tab').forEach(t=>{if(t.getAttribute('onclick')?.includes(tabId))t.classList.add('active');});
+  if(tabId==='players-tab'&&currentSession)renderSessionPlayers();
+  if(tabId==='matchmaking-tab'&&currentSession)renderSessionQueue();
+  if(tabId==='matches-tab'&&currentSession)renderSessionMatches();
+  if(tabId==='history-tab'&&currentSession)renderSessionHistory();
+  if(tabId==='session-lb-tab'&&currentSession)renderSessionLeaderboard();
+  if(tabId==='rsvp-tab'&&currentSession)renderRSVP();
+  if(tabId==='tournament-tab'&&currentSession)renderTournament();
+  if(tabId==='invite-tab'&&currentSession)renderInviteTab();
+}
+
+// SESSIONS
+function openNewSessionModal(){document.getElementById('newSessionDate').value=new Date().toISOString().split('T')[0];document.getElementById('newSessionModal').style.display='flex';document.getElementById('newSessionModal').classList.add('open');}
+function createSession(){
+  const name=document.getElementById('newSessionName').value.trim();
+  const location=document.getElementById('newSessionLocation').value.trim();
+  const date=document.getElementById('newSessionDate').value;
+  if(!name){showToast('Please enter a session name','error');return;}
+  const user=getCurrentUser();
+  const session={id:Date.now(),name,location,date,ownerId:user.id,roomCode:Math.random().toString(36).substring(2,8).toUpperCase(),status:'active',players:[],matches:[],matchCounter:1,createdAt:new Date().toISOString()};
+  db.sessions.push(session);saveDB();closeModal('newSessionModal');
+  document.getElementById('newSessionName').value='';document.getElementById('newSessionLocation').value='';
+  showToast(`"${name}" created! 🏓`);openSession(session.id);
+}
+function openSession(id){
+  currentSession=db.sessions.find(s=>s.id===id);
+  if(!currentSession)return;
+  // Store ID on the view so we can recover currentSession if needed
+  const view=document.getElementById('view-session-detail');
+  if(view)view.dataset.sessionId=id;
+  switchView('session-detail');renderSessionDetail();
+}
+function renderSessionDetail(){
+  if(!currentSession)return;
+  const s=currentSession,user=getCurrentUser();
+  const isOwner=s.ownerId===user?.id;
+  document.getElementById('sessionDetailTitle').textContent=s.name;
+  document.getElementById('sessionDetailSub').textContent=`${s.location||'No location'} · ${s.date||'Today'}`;
+  document.getElementById('sdhName').textContent=s.name;
+  document.getElementById('sdhMeta').textContent=`${s.status==='active'?'🟢 Active':'✅ Completed'} · ${s.players.length} players`;
+  document.getElementById('sessionRoomCode').textContent=s.roomCode;
+  document.getElementById('sessionInviteLink').textContent=`courtflow.app/join/${s.roomCode}`;
+  document.getElementById('sdhStats').innerHTML=`
+    <div class="sdh-stat"><div class="sdh-stat-num">${s.players.length}</div><div class="sdh-stat-label">Players</div></div>
+    <div class="sdh-stat"><div class="sdh-stat-num">${s.matches.filter(m=>m.status==='active').length}</div><div class="sdh-stat-label">Live</div></div>
+    <div class="sdh-stat"><div class="sdh-stat-num">${s.matches.filter(m=>m.status==='completed').length}</div><div class="sdh-stat-label">Done</div></div>
+  `;
+  const actions=document.getElementById('sessionDetailActions');
+  if(isOwner){
+    actions.innerHTML=`
+      <span class="session-role-badge role-owner">👑 Owner</span>
+      <button class="btn btn-outline btn-sm" onclick="renameSession(${s.id})">✏️ Rename</button>
+      <button class="btn btn-sm" style="background:var(--red-light);color:var(--red);" onclick="endSession(${s.id})">End Session</button>
+      <button class="btn btn-sm" style="background:var(--red);color:white;" onclick="deleteSession(${s.id})">🗑 Delete</button>
+    `;
+  } else {
+    const p=s.players.find(p=>p.userId===user?.id);
+    actions.innerHTML=p?.role==='admin'?`<span class="session-role-badge role-admin">🛡️ Admin</span>`:`<span class="session-role-badge role-member">👁️ Member</span>`;
+  }
+  renderSessionMatches();renderSessionPlayers();renderSessionQueue();
+}
+function renameSession(id){
+  const s=db.sessions.find(s=>s.id===id);if(!s)return;
+  const n=prompt('New session name:',s.name);
+  if(n&&n.trim()){s.name=n.trim();currentSession=s;saveDB();renderSessionDetail();renderAll();showToast(`Renamed to "${s.name}" ✅`);}
+}
+function endSession(id){
+  if(!confirm('End this session?'))return;
+  const s=db.sessions.find(s=>s.id===id);
+  if(s){s.status='completed';saveDB();renderAll();switchView('sessions');showToast('Session ended');}
+}
+function deleteSession(id){
+  if(!confirm('Permanently delete this session? This cannot be undone.'))return;
+  db.sessions=db.sessions.filter(s=>s.id!==id);
+  currentSession=null;saveDB();renderAll();switchView('sessions');showToast('Session deleted 🗑');
+}
+
+// PLAYERS
+function renderSessionPlayers(){
+  if(!currentSession)return;
+  const s=currentSession,user=getCurrentUser();
+  const isOwner=s.ownerId===user?.id;
+  const pInSession=s.players.find(p=>p.userId===user?.id);
+  const canEdit=isOwner||pInSession?.role==='admin';
+  document.getElementById('sessionPlayerCount').textContent=`${s.players.length} player${s.players.length!==1?'s':''}`;
+  const list=document.getElementById('sessionMembersList');
+  if(s.players.length===0){list.innerHTML=`<div class="empty-state" style="padding:2rem 0;"><div class="empty-icon">👥</div><div class="empty-title">No players yet</div></div>`;return;}
+  list.innerHTML=s.players.map(p=>{
+    const rc=p.role==='owner'?'role-owner':p.role==='admin'?'role-admin':'role-member';
+    const rl=p.role==='owner'?'👑 Owner':p.role==='admin'?'🛡️ Admin':'👁️ Member';
+    const statusColor=p.status==='playing'?'var(--yellow)':p.status==='waiting'?'var(--green)':'var(--muted)';
+    return `
+      <div class="member-row">
+        <div style="width:36px;height:36px;border-radius:50%;background:${getColor(p.name)};display:flex;align-items:center;justify-content:center;color:white;font-size:0.75rem;font-weight:700;flex-shrink:0;">${getInitials(p.name)}</div>
+        <div style="flex:1;">
+          <div class="member-name">${p.name}</div>
+          <div class="member-joined">${p.level} · <span style="color:${statusColor};">${p.status}</span></div>
+        </div>
+        <span class="session-role-badge ${rc}">${rl}</span>
+        ${canEdit&&p.role!=='owner'?`
+          <select onchange="changePlayerRole(${s.id},${p.id},this.value)" style="padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:0.6rem;background:var(--surface2);outline:none;">
+            <option value="member" ${p.role==='member'?'selected':''}>Member</option>
+            <option value="admin" ${p.role==='admin'?'selected':''}>Admin</option>
+          </select>
+          <button onclick="togglePlayerStatus(${s.id},${p.id})" style="padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-size:0.8rem;cursor:pointer;background:var(--surface2);" title="Toggle status">${p.status==='waiting'?'⏸':'▶'}</button>
+          <button onclick="removePlayerFromSession(${s.id},${p.id})" style="padding:0.3rem 0.5rem;border:1px solid var(--border);border-radius:6px;font-size:0.8rem;cursor:pointer;background:var(--surface2);">✕</button>
+        `:''}
+      </div>
+    `;
+  }).join('');
+}
+function togglePlayerStatus(sessionId,playerId){
+  const s=db.sessions.find(s=>s.id===sessionId),p=s?.players.find(p=>p.id===playerId);
+  if(p&&p.status!=='playing'){p.status=p.status==='waiting'?'sitting':'waiting';saveDB();renderSessionPlayers();renderSessionQueue();}
+}
+function changePlayerRole(sessionId,playerId,role){
+  const s=db.sessions.find(s=>s.id===sessionId),p=s?.players.find(p=>p.id===playerId);
+  if(p){p.role=role;saveDB();renderSessionPlayers();showToast(`${p.name} is now ${role}`);}
+}
+function removePlayerFromSession(sessionId,playerId){
+  const s=db.sessions.find(s=>s.id===sessionId);if(!s)return;
+  s.players=s.players.filter(p=>p.id!==playerId);saveDB();renderSessionPlayers();renderSessionQueue();showToast('Player removed');
+}
+function openAddPlayerModal(){document.getElementById('addPlayerModal').style.display='flex';document.getElementById('addPlayerModal').classList.add('open');}
+function addPlayerToSession(){
+  const name=document.getElementById('addPlayerName').value.trim();
+  const level=document.getElementById('addPlayerLevel').value;
+  const role=document.getElementById('addPlayerRole').value;
+  if(!name){showToast('Please enter a name','error');return;}
+  if(!currentSession)return;
+  if(currentSession.players.find(p=>p.name.toLowerCase()===name.toLowerCase())){showToast('Player already in session','error');return;}
+  currentSession.players.push({id:Date.now(),name,level,role,status:'waiting',wins:0,losses:0,points:0,matchesPlayed:0,joinedAt:new Date().toISOString()});
+  saveDB();closeModal('addPlayerModal');document.getElementById('addPlayerName').value='';
+  renderSessionDetail();showToast(`${name} added! ✅`);
+}
+
+// MATCHMAKING
+function shuffle(arr){const a=[...arr];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
+function levelVal(l){return{beginner:1,intermediate:2,advanced:3,pro:4}[l]||1;}
+function renderSessionQueue(){
+  if(!currentSession)return;
+  const waiting=currentSession.players.filter(p=>p.status==='waiting');
+  document.getElementById('sessionQueueCount').textContent=waiting.length;
+  const list=document.getElementById('sessionQueueList');
+  if(waiting.length===0){list.innerHTML=`<div style="font-family:var(--mono);font-size:0.65rem;color:var(--muted);padding:1rem 0;">No players waiting. Add players first!</div>`;return;}
+  list.innerHTML=waiting.map((p,i)=>`
+    <div style="display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:0.4rem;">
+      <div style="font-family:var(--display);font-size:1rem;color:var(--muted2);width:24px;">${i+1}</div>
+      <div style="width:28px;height:28px;border-radius:50%;background:${getColor(p.name)};display:flex;align-items:center;justify-content:center;color:white;font-size:0.65rem;font-weight:700;flex-shrink:0;">${getInitials(p.name)}</div>
+      <div style="flex:1;font-size:0.85rem;font-weight:500;">${p.name}</div>
+      <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);">${p.level}</div>
+    </div>
+  `).join('');
+}
+function generateSessionMatch(){
+  if(!currentSession)return;
+  const mode=document.getElementById('sessionMatchMode').value;
+  const winScore=parseInt(document.getElementById('sessionWinScore').value);
+  // Use waiting players; if not enough, use all players not currently playing
+  let waiting=currentSession.players.filter(p=>p.status==='waiting');
+  if(waiting.length<4) waiting=currentSession.players.filter(p=>p.status!=='playing');
+  if(waiting.length<4){showToast(`Need at least 4 players (have ${waiting.length})`,'error');return;}
+  let selected, matchObj;
+  const mkMatch=(tA,tB)=>({id:currentSession.matchCounter++,teamA:tA,teamB:tB,scoreA:0,scoreB:0,winScore,status:'active',winner:null,tiebreakRule:null,server1Team:null,server1Idx:null,server2Team:null,server2Idx:null,scoreHistory:[],createdAt:new Date().toLocaleTimeString(),mode});
+  if(mode==='random'){
+    selected=shuffle(waiting).slice(0,4);
+    // Don't change status for random — continuous play
+    matchObj=mkMatch([selected[0].id,selected[1].id],[selected[2].id,selected[3].id]);
+  } else if(mode==='balanced'){
+    const s=shuffle(waiting).slice(0,4).sort((a,b)=>levelVal(b.level)-levelVal(a.level));
+    selected=[s[0],s[3],s[1],s[2]];
+    selected.forEach(p=>p.status='playing');
+    matchObj=mkMatch([selected[0].id,selected[1].id],[selected[2].id,selected[3].id]);
+  } else {
+    selected=waiting.slice(0,4);
+    selected.forEach(p=>p.status='playing');
+    matchObj=mkMatch([selected[0].id,selected[1].id],[selected[2].id,selected[3].id]);
+  }
+  currentSession.matches.push(matchObj);
+  saveDB();renderSessionDetail();switchInnerTab('matches-tab');showToast('Match generated! ⚡');
+}
+function spinSessionRandomizer(){
+  if(!currentSession)return;
+  const waiting=currentSession.players.filter(p=>p.status==='waiting');
+  if(waiting.length<4){showToast('Need 4+ waiting players','error');return;}
+  const shuffled=shuffle(waiting).slice(0,4);
+  const tA=[shuffled[0],shuffled[1]],tB=[shuffled[2],shuffled[3]];
+  document.getElementById('sessionRandCard').style.display='block';
+  document.getElementById('sessionRandContent').innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:1rem;align-items:center;margin-bottom:1rem;">
+      <div style="background:var(--green-light);border:2px solid var(--green3);border-radius:10px;padding:1rem;text-align:center;">
+        <div style="font-family:var(--mono);font-size:0.58rem;color:var(--green);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:0.75rem;">Team A</div>
+        ${tA.map(p=>`<div style="display:flex;align-items:center;gap:0.5rem;background:white;border-radius:6px;padding:0.4rem 0.6rem;margin-bottom:0.3rem;"><div style="width:24px;height:24px;border-radius:50%;background:${getColor(p.name)};display:flex;align-items:center;justify-content:center;color:white;font-size:0.6rem;font-weight:700;">${getInitials(p.name)}</div><span style="font-size:0.8rem;font-weight:500;">${p.name}</span></div>`).join('')}
+      </div>
+      <div style="font-family:var(--display);font-size:1.8rem;color:var(--muted2);text-align:center;">VS</div>
+      <div style="background:var(--blue-light);border:2px solid #90caf9;border-radius:10px;padding:1rem;text-align:center;">
+        <div style="font-family:var(--mono);font-size:0.58rem;color:var(--blue);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:0.75rem;">Team B</div>
+        ${tB.map(p=>`<div style="display:flex;align-items:center;gap:0.5rem;background:white;border-radius:6px;padding:0.4rem 0.6rem;margin-bottom:0.3rem;"><div style="width:24px;height:24px;border-radius:50%;background:${getColor(p.name)};display:flex;align-items:center;justify-content:center;color:white;font-size:0.6rem;font-weight:700;">${getInitials(p.name)}</div><span style="font-size:0.8rem;font-weight:500;">${p.name}</span></div>`).join('')}
+      </div>
+    </div>
+    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+      <button class="btn btn-green btn-sm" onclick="confirmSessionRandMatch(${JSON.stringify(tA.map(p=>p.id))},${JSON.stringify(tB.map(p=>p.id))})">✅ Confirm Match</button>
+      <button class="btn btn-sm" style="background:#9c27b0;color:white;" onclick="spinSessionRandomizer()">🎲 Respin</button>
+      <button class="btn btn-outline btn-sm" onclick="document.getElementById('sessionRandCard').style.display='none'">Cancel</button>
+    </div>
+  `;
+}
+function confirmSessionRandMatch(tAIds,tBIds){
+  if(!currentSession)return;
+  const winScore=parseInt(document.getElementById('sessionWinScore').value);
+  [...tAIds,...tBIds].forEach(id=>{const p=currentSession.players.find(p=>p.id===id);if(p)p.status='playing';});
+  currentSession.matches.push({id:currentSession.matchCounter++,teamA:tAIds,teamB:tBIds,scoreA:0,scoreB:0,winScore,status:'active',winner:null,tiebreakRule:null,createdAt:new Date().toLocaleTimeString(),mode:'random'});
+  document.getElementById('sessionRandCard').style.display='none';
+  saveDB();renderSessionDetail();switchInnerTab('matches-tab');showToast('🎲 Random match started!');
+}
+
+// MATCHES
+function sessionAddScore(matchId,team){
+  if(!currentSession)return;
+  const m=currentSession.matches.find(m=>m.id===matchId);
+  if(!m||m.status!=='active')return;
+  initServe(m);
+  pushScoreHistory(m);
+  if(m.tiebreakRule==='deuce'){team==='A'?m.scoreA++:m.scoreB++;}
+  else{team==='A'?m.scoreA=Math.min(m.scoreA+1,m.winScore):m.scoreB=Math.min(m.scoreB+1,m.winScore);}
+  sessionCheckWinner(m);saveDB();renderSessionMatches();
+}
+function sessionMinusScore(matchId,team){
+  if(!currentSession)return;
+  const m=currentSession.matches.find(m=>m.id===matchId);
+  if(!m||m.status!=='active')return;
+  team==='A'?m.scoreA=Math.max(0,m.scoreA-1):m.scoreB=Math.max(0,m.scoreB-1);
+  saveDB();renderSessionMatches();
+}
+function sessionCheckWinner(m){
+  if(m.status==='won'||m.status==='completed')return;
+  const tied=m.scoreA===(m.winScore-1)&&m.scoreB===(m.winScore-1);
+  if(tied&&!m.tiebreakRule){m.tiebreakRule='pending';saveDB();renderSessionMatches();return;}
+  if(m.tiebreakRule==='suddendeath'){if(m.scoreA>=m.winScore||m.scoreB>=m.winScore)sessionDeclareWinner(m);return;}
+  if(m.tiebreakRule==='deuce'){const diff=Math.abs(m.scoreA-m.scoreB),mx=Math.max(m.scoreA,m.scoreB);if(mx>=m.winScore&&diff>=2)sessionDeclareWinner(m);return;}
+  if(m.scoreA>=m.winScore||m.scoreB>=m.winScore)sessionDeclareWinner(m);
+}
+function sessionDeclareWinner(m){
+  // Don't auto-complete — mark as 'won' state, wait for Done button
+  m.status='won';m.winner=m.scoreA>m.scoreB?'A':'B';
+  showToast(`🏆 Team ${m.winner} wins! Press Done to save.`);saveDB();renderSessionMatches();
+}
+function sessionConfirmDone(matchId){
+  if(!currentSession)return;
+  const m=currentSession.matches.find(m=>m.id===matchId);if(!m)return;
+  m.status='completed';
+  const wT=m.winner==='A'?m.teamA:m.teamB,lT=m.winner==='A'?m.teamB:m.teamA;
+  wT.forEach(id=>{const p=currentSession.players.find(p=>p.id===id);if(p){p.wins++;p.points+=3;p.matchesPlayed++;p.status='waiting';}});
+  lT.forEach(id=>{const p=currentSession.players.find(p=>p.id===id);if(p){p.losses++;p.matchesPlayed++;p.status='waiting';}});
+  showToast(`✅ Match #${m.id} saved to history!`);saveDB();renderSessionDetail();
+}
+function sessionSetTiebreak(matchId,rule){
+  if(!currentSession)return;
+  const m=currentSession.matches.find(m=>m.id===matchId);if(!m)return;
+  m.tiebreakRule=rule;saveDB();renderSessionMatches();
+  showToast(rule==='deuce'?'⚔️ Deuce! Win by 2!':'⚡ Sudden Death!');
+}
+function sessionEndMatch(matchId){
+  if(!currentSession)return;
+  const m=currentSession.matches.find(m=>m.id===matchId);if(!m)return;
+  [...m.teamA,...m.teamB].forEach(id=>{const p=currentSession.players.find(p=>p.id===id);if(p&&p.status==='playing')p.status='waiting';});
+  m.status='completed';saveDB();renderSessionDetail();showToast('Match ended');
+}
+function getSessionPlayerName(id){const p=currentSession?.players.find(p=>p.id===id);return p?p.name:'Unknown';}
+
+function renderSessionMatches(){
+  if(!currentSession)return;
+  const active=currentSession.matches.filter(m=>m.status==='active'||m.status==='won');
+  const list=document.getElementById('sessionMatchesList'),empty=document.getElementById('sessionMatchesEmpty');
+  if(active.length===0){list.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  const user=getCurrentUser();
+  // Owner is always the session creator — allow edit
+  const canEdit=true; // All users who can open a session can edit for now
+
+  list.innerHTML=active.map(m=>{
+    initServe(m);
+    const aWin=m.scoreA>m.scoreB,bWin=m.scoreB>m.scoreA;
+    const isPending=m.tiebreakRule==='pending',isDeuce=m.tiebreakRule==='deuce',isSudden=m.tiebreakRule==='suddendeath';
+    const isWon=m.status==='won';
+    const tA=m.teamA.map(getSessionPlayerName),tB=m.teamB.map(getSessionPlayerName);
+    const borderColor=isWon?'var(--green)':isPending?'#ff6b6b':isDeuce?'#f4a261':isSudden?'#d63031':'var(--border)';
+
+    const serveTag=(playerIdx,team)=>{
+      const is1=m.server1Team===team&&m.server1Idx===playerIdx;
+      const is2=m.server2Team===team&&m.server2Idx===playerIdx;
+      if(is1) return `<span style="font-family:var(--mono);font-size:0.5rem;background:#fff3e0;color:#e08c50;border:1px solid #f4a261;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.3rem;">1st🏓</span>`;
+      if(is2) return `<span style="font-family:var(--mono);font-size:0.5rem;background:var(--blue-light);color:var(--blue);border:1px solid #90caf9;border-radius:4px;padding:0.1rem 0.4rem;margin-left:0.3rem;">2nd🏓</span>`;
+      return '';
+    };
+
+    // Server display names
+    let server1Name='', server2Name='';
+    if(m.server1Team){
+      const arr=m.server1Team==='A'?m.teamA:m.teamB;
+      server1Name=getSessionPlayerName(arr[m.server1Idx]);
+    }
+    if(m.server2Team){
+      const arr=m.server2Team==='A'?m.teamA:m.teamB;
+      server2Name=getSessionPlayerName(arr[m.server2Idx]);
+    }
+    const serverInfo=server1Name?`🏓 1st: <strong>${server1Name}</strong>${server2Name?` · 2nd: <strong>${server2Name}</strong>`:' <span style="color:var(--muted2);">(tap Set to add 2nd)</span>'}`:`<span style="color:var(--muted2);">Tap 🏓 Set on a player to set server</span>`;
+
+    return `
+      <div style="background:var(--surface);border:2px solid ${borderColor};border-radius:14px;overflow:hidden;margin-bottom:1rem;">
+        ${isWon?`<div style="background:var(--green);padding:0.75rem 1rem;text-align:center;">
+          <div style="font-family:var(--display);font-size:1.1rem;color:white;">🏆 Team ${m.winner} Wins! ${m.scoreA} — ${m.scoreB}</div>
+          <div style="font-family:var(--mono);font-size:0.6rem;color:rgba(255,255,255,0.7);margin-top:0.3rem;">Press ✅ Done to save to history</div>
+        </div>`:''}
+        ${isPending&&!isWon?`<div style="background:linear-gradient(135deg,#fff5f5,#fff8e1);padding:1.25rem;text-align:center;border-bottom:1px solid var(--border);">
+          <div style="font-family:var(--display);font-size:1.3rem;color:#d63031;margin-bottom:0.3rem;">🔥 ${m.scoreA} — ${m.scoreB} · Tied!</div>
+          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:1rem;">Choose how to break the tie</div>
+          <div style="display:flex;gap:1rem;justify-content:center;">
+            <button onclick="sessionSetTiebreak(${m.id},'deuce')" style="padding:0.85rem 1.5rem;background:#fff3e0;border:2px solid #f4a261;border-radius:10px;cursor:pointer;font-family:var(--sans);font-weight:500;">⚔️ Deuce<br><span style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);">Win by 2</span></button>
+            <button onclick="sessionSetTiebreak(${m.id},'suddendeath')" style="padding:0.85rem 1.5rem;background:#fdeaea;border:2px solid #d63031;border-radius:10px;cursor:pointer;font-family:var(--sans);font-weight:500;">⚡ Sudden Death<br><span style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);">Next point wins</span></button>
+          </div>
+        </div>`:''}
+        ${isDeuce&&!isWon?`<div style="background:#fff3e0;padding:0.5rem 1rem;text-align:center;font-family:var(--display);color:#e08c50;border-bottom:1px solid var(--border);">⚔️ DEUCE — Win by 2 · ${m.scoreA} : ${m.scoreB}</div>`:''}
+        ${isSudden&&!isWon?`<div style="background:var(--red-light);padding:0.5rem 1rem;text-align:center;font-family:var(--display);color:var(--red);border-bottom:1px solid var(--border);">⚡ SUDDEN DEATH — Next point wins!</div>`:''}
+
+        <div style="padding:0.6rem 1rem;background:var(--surface2);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);">Match #${m.id} · ${m.createdAt}</span>
+          <span style="font-family:var(--mono);font-size:0.55rem;background:${isWon?'var(--green-light)':'var(--yellow-light)'};color:${isWon?'var(--green)':'var(--yellow)'};padding:0.2rem 0.6rem;border-radius:10px;">${isWon?'🏆 WON':'🟡 LIVE'}</span>
+        </div>
+
+        <div style="padding:1.25rem;display:grid;grid-template-columns:1fr auto 1fr;gap:1rem;align-items:center;">
+          <!-- TEAM A -->
+          <div style="text-align:center;">
+            <div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:0.6rem;">Team A</div>
+            ${tA.map((n,idx)=>`
+              <div style="display:flex;align-items:center;justify-content:center;gap:0.3rem;background:${m.winner==='A'&&isWon?'var(--green-light)':'var(--surface2)'};border:1px solid ${m.winner==='A'&&isWon?'var(--green3)':'var(--border)'};padding:0.35rem 0.6rem;border-radius:6px;margin-bottom:0.3rem;flex-wrap:wrap;">
+                <span style="font-size:0.82rem;font-weight:500;">${n}</span>
+                ${serveTag(idx,'A')}
+                ${!isWon?`<button onclick="setServer(${m.id},'A',${idx})" style="padding:0.15rem 0.4rem;font-family:var(--mono);font-size:0.5rem;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--muted);">🏓 Set</button>`:''}
+              </div>`).join('')}
+            ${!isPending&&!isWon?`
+              <div style="display:flex;gap:0.4rem;justify-content:center;margin-top:0.6rem;">
+                <button onclick="sessionMinusScore(${m.id},'A')" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--red);background:var(--red-light);color:var(--red);cursor:pointer;font-size:1.2rem;font-weight:700;">−</button>
+                <button onclick="sessionAddScore(${m.id},'A')" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--green);background:var(--green-light);color:var(--green);cursor:pointer;font-size:1.2rem;font-weight:700;">+</button>
+              </div>`:''}
+          </div>
+
+          <!-- SCORE -->
+          <div style="text-align:center;min-width:80px;">
+            <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-bottom:0.25rem;">VS</div>
+            <div style="display:flex;align-items:center;gap:0.4rem;justify-content:center;">
+              <div style="font-family:var(--display);font-size:3rem;font-weight:800;color:${aWin?'var(--green)':isPending?'var(--red)':'var(--text)'};line-height:1;">${m.scoreA}</div>
+              <div style="font-family:var(--display);font-size:1.5rem;color:var(--muted2);">:</div>
+              <div style="font-family:var(--display);font-size:3rem;font-weight:800;color:${bWin?'var(--green)':isPending?'var(--red)':'var(--text)'};line-height:1;">${m.scoreB}</div>
+            </div>
+            <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-top:0.25rem;">${isDeuce?'⚔️ Win by 2':isSudden?'⚡ Next wins!':'First to '+m.winScore}</div>
+          </div>
+
+          <!-- TEAM B -->
+          <div style="text-align:center;">
+            <div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:0.6rem;">Team B</div>
+            ${tB.map((n,idx)=>`
+              <div style="display:flex;align-items:center;justify-content:center;gap:0.3rem;background:${m.winner==='B'&&isWon?'var(--green-light)':'var(--surface2)'};border:1px solid ${m.winner==='B'&&isWon?'var(--green3)':'var(--border)'};padding:0.35rem 0.6rem;border-radius:6px;margin-bottom:0.3rem;flex-wrap:wrap;">
+                <span style="font-size:0.82rem;font-weight:500;">${n}</span>
+                ${serveTag(idx,'B')}
+                ${!isWon?`<button onclick="setServer(${m.id},'B',${idx})" style="padding:0.15rem 0.4rem;font-family:var(--mono);font-size:0.5rem;border-radius:4px;cursor:pointer;border:1px solid var(--border);background:var(--surface);color:var(--muted);">🏓 Set</button>`:''}
+              </div>`).join('')}
+            ${!isPending&&!isWon?`
+              <div style="display:flex;gap:0.4rem;justify-content:center;margin-top:0.6rem;">
+                <button onclick="sessionAddScore(${m.id},'B')" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--green);background:var(--green-light);color:var(--green);cursor:pointer;font-size:1.2rem;font-weight:700;">+</button>
+                <button onclick="sessionMinusScore(${m.id},'B')" style="width:40px;height:40px;border-radius:8px;border:2px solid var(--red);background:var(--red-light);color:var(--red);cursor:pointer;font-size:1.2rem;font-weight:700;">−</button>
+              </div>`:''}
+          </div>
+        </div>
+
+        <!-- FOOTER: server info + actions -->
+        <div style="padding:0.65rem 1rem;border-top:1px solid var(--border);background:var(--surface2);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+          <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);">${serverInfo}</div>
+          <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+            ${!isWon?`<button onclick="showUndoHistory(${m.id})" style="padding:0.4rem 0.75rem;border-radius:6px;border:1px solid var(--border);background:var(--surface);cursor:pointer;font-family:var(--mono);font-size:0.6rem;color:var(--muted);">↩️ Undo</button>`:''}
+            <button onclick="openShareScore(${m.id})" style="padding:0.4rem 0.75rem;border-radius:6px;border:1px solid #90caf9;background:var(--blue-light);cursor:pointer;font-family:var(--mono);font-size:0.6rem;color:var(--blue);">📤 Share</button>
+            ${isWon
+              ?`<button onclick="sessionConfirmDone(${m.id})" style="padding:0.4rem 0.75rem;border-radius:6px;border:none;background:var(--green);cursor:pointer;font-family:var(--mono);font-size:0.6rem;color:white;font-weight:600;">✅ Done</button>`
+              :`<button onclick="sessionEndMatch(${m.id})" style="padding:0.4rem 0.75rem;border-radius:6px;border:1px solid var(--yellow);background:var(--yellow-light);cursor:pointer;font-family:var(--mono);font-size:0.6rem;color:var(--yellow);">End Match</button>`
+            }
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+    initServe(m);
+function deleteMatchFromHistory(matchId){
+  if(!currentSession||!confirm('Delete this match from history?'))return;
+  currentSession.matches=currentSession.matches.filter(m=>m.id!==matchId);
+  saveDB();renderSessionHistory();showToast('Match deleted');
+}
+
+function renderSessionHistory(){
+  if(!currentSession)return;
+  const completed=[...currentSession.matches].filter(m=>m.status==='completed').reverse();
+  const list=document.getElementById('sessionHistoryList'),empty=document.getElementById('sessionHistoryEmpty');
+  if(completed.length===0){list.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  list.innerHTML=completed.map(m=>{
+    const tA=m.teamA.map(getSessionPlayerName),tB=m.teamB.map(getSessionPlayerName);
+    const tb=m.tiebreakRule==='deuce'?' · Deuce':m.tiebreakRule==='suddendeath'?' · Sudden Death':'';
+    const winnerNames=m.winner==='A'?tA.join(' & '):tB.join(' & ');
+    return `
+      <div style="background:var(--surface);border:1.5px solid var(--green3);border-radius:12px;overflow:hidden;margin-bottom:0.75rem;">
+        <div style="background:var(--green);padding:0.6rem 1rem;display:flex;justify-content:space-between;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+          <span style="font-family:var(--display);color:white;font-size:0.95rem;">🏆 ${winnerNames} Win! · ${m.winner==='A'?m.scoreA:m.scoreB}—${m.winner==='A'?m.scoreB:m.scoreA}${tb}</span>
+          <div style="display:flex;gap:0.4rem;">
+            <button onclick="openShareScore(${m.id})" style="background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.3);border-radius:6px;padding:0.25rem 0.65rem;color:white;font-family:var(--mono);font-size:0.6rem;cursor:pointer;">📤 Share</button>
+            <button onclick="deleteMatchFromHistory(${m.id})" style="background:rgba(255,50,50,0.3);border:1px solid rgba(255,100,100,0.4);border-radius:6px;padding:0.25rem 0.65rem;color:white;font-family:var(--mono);font-size:0.6rem;cursor:pointer;">🗑 Delete</button>
+          </div>
+        </div>
+        <div style="padding:0.75rem 1rem;display:grid;grid-template-columns:1fr auto 1fr;gap:1rem;align-items:center;">
+          <div style="text-align:center;">${tA.map(n=>`<div style="font-size:0.82rem;font-weight:${m.winner==='A'?'600':'400'};color:${m.winner==='A'?'var(--green)':'var(--muted)'};">${n}</div>`).join('')}</div>
+          <div style="font-family:var(--display);font-size:1.3rem;color:var(--text);text-align:center;">${m.scoreA}—${m.scoreB}</div>
+          <div style="text-align:center;">${tB.map(n=>`<div style="font-size:0.82rem;font-weight:${m.winner==='B'?'600':'400'};color:${m.winner==='B'?'var(--green)':'var(--muted)'};">${n}</div>`).join('')}</div>
+        </div>
+        <div style="padding:0.4rem 1rem;background:var(--surface2);border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);">${m.createdAt}${tb}</span>
+          <span style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);">Match #${m.id}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// SESSIONS GRID
+function renderSessions(){
+  const grid=document.getElementById('sessionsGrid'),empty=document.getElementById('sessionsEmpty');
+  const filter=document.getElementById('sessionFilterSelect')?.value||'all';
+  const user=getCurrentUser();
+  let sessions=db.sessions.filter(s=>s.ownerId===user?.id||s.players.find(p=>p.userId===user?.id));
+  if(filter!=='all')sessions=sessions.filter(s=>s.status===filter);
+  if(sessions.length===0){grid.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  const hdrs=['','yellow','blue'];
+  grid.innerHTML=sessions.map((s,i)=>`
+    <div class="session-card ${s.status==='active'?'active-session':''}" onclick="openSession(${s.id})">
+      <div class="session-card-header ${hdrs[i%3]}">
+        <div><div class="session-name">${s.name}</div><div class="session-date">${s.date||'No date'} · ${s.location||'No location'}</div></div>
+        <span class="session-status">${s.status==='active'?'🟢 Live':'✅ Done'}</span>
+      </div>
+      <div class="session-card-body">
+        <div class="session-meta">
+          <div><div class="session-meta-num">${s.players.length}</div><div class="session-meta-label">Players</div></div>
+          <div><div class="session-meta-num">${s.matches.filter(m=>m.status==='active').length}</div><div class="session-meta-label">Live</div></div>
+          <div><div class="session-meta-num">${s.matches.filter(m=>m.status==='completed').length}</div><div class="session-meta-label">Done</div></div>
+        </div>
+        ${s.ownerId===user?.id?'<span class="session-role-badge role-owner">👑 Owner</span>':'<span class="session-role-badge role-member">👁️ Member</span>'}
+      </div>
+      <div class="session-card-footer">
+        <span style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);">Code: ${s.roomCode}</span>
+        <div style="display:flex;gap:0.5rem;align-items:center;">
+          ${s.ownerId===user?.id?`<button onclick="event.stopPropagation();deleteSession(${s.id})" style="padding:0.3rem 0.5rem;border:1px solid var(--red);border-radius:6px;background:var(--red-light);color:var(--red);font-size:0.75rem;cursor:pointer;">🗑</button>`:''}
+          <span style="font-family:var(--mono);font-size:0.6rem;color:var(--green);">Open →</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+  const activeCount=sessions.filter(s=>s.status==='active').length;
+  const badge=document.getElementById('activeSessionBadge');
+  if(badge){badge.textContent=activeCount;badge.style.display=activeCount>0?'inline':'none';}
+}
+
+// DASHBOARD
+function renderDashboard(){
+  const user=getCurrentUser();
+  // Item 6: only sessions created by THIS account
+  const mySessions=db.sessions.filter(s=>s.ownerId===user?.id);
+  const allPlayers=new Set(mySessions.flatMap(s=>s.players.map(p=>p.name)));
+  const allMatches=mySessions.flatMap(s=>s.matches);
+  document.getElementById('dashTotalSessions').textContent=mySessions.length;
+  document.getElementById('dashActiveSessions').textContent=`${mySessions.filter(s=>s.status==='active').length} active`;
+  // Item 8: rename to "Unique Players"
+  // Unique players stat removed
+  document.getElementById('dashTotalMatches').textContent=allMatches.filter(m=>m.status==='completed').length;
+  document.getElementById('dashUpcomingEvents').textContent=db.events.filter(e=>new Date(e.date)>=new Date()).length;
+  const recent=mySessions.slice(-3).reverse();
+  const recentList=document.getElementById('recentSessionsList'),recentEmpty=document.getElementById('recentSessionsEmpty');
+  if(recent.length===0){recentList.innerHTML='';recentEmpty.style.display='block';return;}
+  recentEmpty.style.display='none';
+  recentList.innerHTML=recent.map(s=>`
+    <div onclick="openSession(${s.id})" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:10px;margin-bottom:0.5rem;cursor:pointer;transition:background 0.15s;" onmouseover="this.style.background='var(--green-light)'" onmouseout="this.style.background='var(--surface2)'">
+      <div style="width:38px;height:38px;background:var(--green);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;">🏓</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:0.875rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.name}</div>
+        <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-top:1px;">${s.players.length} players · ${s.matches.filter(m=>m.status==='completed').length} matches</div>
+      </div>
+      <span style="font-family:var(--mono);font-size:0.55rem;background:${s.status==='active'?'var(--green-light)':'var(--surface)'};color:${s.status==='active'?'var(--green)':'var(--muted)'};padding:0.2rem 0.5rem;border-radius:8px;border:1px solid ${s.status==='active'?'var(--green3)':'var(--border)'};">${s.status==='active'?'Live':'Done'}</span>
+    </div>
+  `).join('');
+}
+
+// CALENDAR
+let calMonth=new Date().getMonth(),calYear=new Date().getFullYear();
+function renderCalendar(){
+  const months=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  document.getElementById('calMonthLabel').textContent=`${months[calMonth]} ${calYear}`;
+  const grid=document.getElementById('calendarGrid');
+  const days=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const eventDates=new Set(db.events.map(e=>e.date));
+  let html=days.map(d=>`<div class="cal-header">${d}</div>`).join('');
+  const firstDay=new Date(calYear,calMonth,1).getDay();
+  const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
+  const prevDays=new Date(calYear,calMonth,0).getDate();
+  const today=new Date();
+  for(let i=firstDay-1;i>=0;i--)html+=`<div class="cal-day other-month">${prevDays-i}</div>`;
+  for(let d=1;d<=daysInMonth;d++){
+    const ds=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday=d===today.getDate()&&calMonth===today.getMonth()&&calYear===today.getFullYear();
+    html+=`<div class="cal-day ${isToday?'today':''} ${eventDates.has(ds)?'has-event':''}">${d}</div>`;
+  }
+  grid.innerHTML=html;renderUpcomingEvents();
+}
+function changeMonth(dir){calMonth+=dir;if(calMonth>11){calMonth=0;calYear++;}if(calMonth<0){calMonth=11;calYear--;}renderCalendar();}
+function renderUpcomingEvents(){
+  const list=document.getElementById('upcomingEventsList'),empty=document.getElementById('eventsEmpty');
+  const upcoming=db.events.filter(e=>new Date(e.date)>=new Date()).sort((a,b)=>new Date(a.date)-new Date(b.date)).slice(0,5);
+  if(upcoming.length===0){list.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  const icons={openplay:'🏓',tournament:'🏆',booking:'🏟️',practice:'🎯'};
+  list.innerHTML=upcoming.map(e=>`
+    <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:0.5rem;">
+      <div style="font-size:1.2rem;">${icons[e.type]||'📅'}</div>
+      <div><div style="font-size:0.875rem;font-weight:500;">${e.name}</div><div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);">${e.date}</div></div>
+    </div>
+  `).join('');
+}
+function openNewEventModal(){document.getElementById('newEventDate').value=new Date().toISOString().split('T')[0];document.getElementById('newEventModal').style.display='flex';document.getElementById('newEventModal').classList.add('open');}
+function createEvent(){
+  const name=document.getElementById('newEventName').value.trim(),date=document.getElementById('newEventDate').value,type=document.getElementById('newEventType').value;
+  if(!name){showToast('Enter event name','error');return;}
+  db.events.push({id:Date.now(),name,date,type});saveDB();closeModal('newEventModal');renderCalendar();renderDashboard();showToast(`"${name}" scheduled! 📅`);
+}
+
+// COURTS
+function renderCourts(){
+  const grid=document.getElementById('courtsGrid'),empty=document.getElementById('courtsEmpty');
+  if(db.courts.length===0){grid.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  const surfaces={hard:'🏟️',indoor:'🏢',outdoor:'☀️',grass:'🌿'};
+  grid.innerHTML=db.courts.map(c=>`
+    <div class="session-card">
+      <div class="session-card-header">
+        <div><div class="session-name">${surfaces[c.surface]||'🏟️'} ${c.name}</div><div class="session-date">${c.location||'No location'} · ${c.surface}</div></div>
+        <span class="session-status">Available</span>
+      </div>
+      <div class="session-card-body">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);">${c.surface} court</span>
+          <button class="btn btn-green btn-sm" onclick="bookCourt(${c.id})">Book</button>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+function openAddCourtModal(){document.getElementById('addCourtModal').style.display='flex';document.getElementById('addCourtModal').classList.add('open');}
+function addCourt(){
+  const name=document.getElementById('addCourtName').value.trim(),location=document.getElementById('addCourtLocation').value.trim(),surface=document.getElementById('addCourtSurface').value;
+  if(!name){showToast('Enter court name','error');return;}
+  db.courts.push({id:Date.now(),name,location,surface});saveDB();closeModal('addCourtModal');renderCourts();showToast(`${name} added! 🏟️`);
+}
+function bookCourt(id){const c=db.courts.find(c=>c.id===id);showToast(`${c?.name} booking coming soon! 📅`,'info');}
+
+// LEADERBOARD
+function renderLeaderboard(){
+  const body=document.getElementById('leaderboardBody'),empty=document.getElementById('leaderboardEmpty');
+  const user=getCurrentUser();
+  const allSessions=db.sessions.filter(s=>s.ownerId===user?.id);
+  const pm={};
+  allSessions.forEach(s=>s.players.forEach(p=>{
+    if(!pm[p.name])pm[p.name]={name:p.name,wins:0,losses:0,points:0,matchesPlayed:0};
+    pm[p.name].wins+=p.wins;pm[p.name].losses+=p.losses;pm[p.name].points+=p.points;pm[p.name].matchesPlayed+=p.matchesPlayed;
+  }));
+  const players=Object.values(pm).filter(p=>p.matchesPlayed>0).sort((a,b)=>b.points-a.points||b.wins-a.wins);
+  if(players.length===0){body.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  body.innerHTML=players.map((p,i)=>{
+    const wr=p.matchesPlayed>0?Math.round((p.wins/p.matchesPlayed)*100):0;
+    return `<tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:0.75rem 1.25rem;font-family:var(--display);font-size:1.1rem;">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
+      <td style="padding:0.75rem 1.25rem;"><div style="display:flex;align-items:center;gap:0.6rem;"><div style="width:28px;height:28px;border-radius:50%;background:${getColor(p.name)};display:flex;align-items:center;justify-content:center;color:white;font-size:0.65rem;font-weight:700;">${getInitials(p.name)}</div><span style="font-weight:500;">${p.name}</span></div></td>
+      <td style="padding:0.75rem 1.25rem;color:var(--green);font-weight:600;">${p.wins}</td>
+      <td style="padding:0.75rem 1.25rem;color:var(--red);">${p.losses}</td>
+      <td style="padding:0.75rem 1.25rem;"><div style="font-family:var(--mono);font-size:0.7rem;">${wr}%</div><div style="height:3px;width:60px;background:var(--border);border-radius:2px;margin-top:3px;"><div style="height:100%;width:${wr}%;background:var(--green);border-radius:2px;"></div></div></td>
+      <td style="padding:0.75rem 1.25rem;font-family:var(--display);font-size:1.1rem;color:var(--yellow);">${p.points}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ALL PLAYERS — clickable for profile
+function renderAllPlayers(){
+  const grid=document.getElementById('allPlayersGrid'),empty=document.getElementById('allPlayersEmpty');
+  const user=getCurrentUser();
+  const allSessions=db.sessions.filter(s=>s.ownerId===user?.id);
+  const pm={};
+  allSessions.forEach(s=>s.players.forEach(p=>{
+    if(!pm[p.name])pm[p.name]={...p,sessions:0,wins:0,losses:0,points:0};
+    pm[p.name].sessions++;pm[p.name].wins+=p.wins;pm[p.name].losses+=p.losses;pm[p.name].points+=p.points;
+  }));
+  const players=Object.values(pm);
+  if(players.length===0){grid.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  grid.innerHTML=players.map(p=>`
+    <div onclick="openPlayerProfile('${p.name.replace(/'/g,"\\'")}')" style="background:var(--surface);border:1.5px solid var(--border);border-radius:12px;padding:1.25rem;display:flex;align-items:center;gap:0.75rem;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.borderColor='var(--green3)';this.style.transform='translateY(-2px)'" onmouseout="this.style.borderColor='var(--border)';this.style.transform='none'">
+      <div style="width:44px;height:44px;border-radius:50%;background:${getColor(p.name)};display:flex;align-items:center;justify-content:center;color:white;font-family:var(--display);font-size:1rem;font-weight:700;flex-shrink:0;">${getInitials(p.name)}</div>
+      <div style="flex:1;">
+        <div style="font-weight:600;font-size:0.9rem;">${p.name}</div>
+        <div style="font-family:var(--mono);font-size:0.58rem;color:var(--muted);margin-top:2px;">${p.level} · ${p.sessions} session${p.sessions!==1?'s':''}</div>
+        <div style="font-family:var(--mono);font-size:0.58rem;color:var(--green);margin-top:2px;">${p.wins}W ${p.losses}L · ${p.points}pts</div>
+      </div>
+      <span style="font-family:var(--mono);font-size:0.6rem;color:var(--green);">View →</span>
+    </div>
+  `).join('');
+}
+
+// ── SERVE: MANUAL SET ──
+function setServer(matchId,team,playerIdx){
+  if(!currentSession)return;
+  const m=currentSession.matches.find(m=>m.id===matchId);if(!m)return;
+  // First click = 1st server, second click = 2nd server, third = clear
+  const is1st=m.server1Team===team&&m.server1Idx===playerIdx;
+  const is2nd=m.server2Team===team&&m.server2Idx===playerIdx;
+  if(!m.server1Team||is2nd){
+    // Set as 1st server (or replace)
+    m.server1Team=team;m.server1Idx=playerIdx;
+    if(is2nd){m.server2Team=null;m.server2Idx=null;}
+    showToast(`🏓 ${getSessionPlayerName(m[team==='A'?'teamA':'teamB'][playerIdx])} is 1st Server`);
+  } else if(!m.server2Team&&!is1st){
+    m.server2Team=team;m.server2Idx=playerIdx;
+    showToast(`🏓 ${getSessionPlayerName(m[team==='A'?'teamA':'teamB'][playerIdx])} is 2nd Server`);
+  } else if(is1st){
+    m.server1Team=null;m.server1Idx=null;
+    showToast('Server cleared');
+  }
+  saveDB();renderSessionMatches();
+}
+
+
+// ── SERVE TRACKER (manual) ──
+function initServe(m){
+  if(!m.scoreHistory)m.scoreHistory=[];
+  if(m.server1Team===undefined)m.server1Team=null;
+  if(m.server2Team===undefined)m.server2Team=null;
+  if(m.server1Idx===undefined)m.server1Idx=null;
+  if(m.server2Idx===undefined)m.server2Idx=null;
+}
+
+// ── UNDO SCORE ──
+function pushScoreHistory(m){
+  if(!m.scoreHistory)m.scoreHistory=[];
+  m.scoreHistory.push({scoreA:m.scoreA,scoreB:m.scoreB,serveState:m.serveState,serveTeam:m.serveTeam,tiebreakRule:m.tiebreakRule});
+  if(m.scoreHistory.length>50)m.scoreHistory.shift();
+}
+function undoScore(matchId,specificIndex){
+  if(!currentSession)return;
+  const m=currentSession.matches.find(m=>m.id===matchId);
+  if(!m||!m.scoreHistory||m.scoreHistory.length===0){showToast('Nothing to undo','error');return;}
+  let state;
+  if(specificIndex!==undefined){state=m.scoreHistory[specificIndex];m.scoreHistory=m.scoreHistory.slice(0,specificIndex);}
+  else state=m.scoreHistory.pop();
+  m.scoreA=state.scoreA;m.scoreB=state.scoreB;
+  if(state.serveState)m.serveState=state.serveState;
+  if(state.serveTeam)m.serveTeam=state.serveTeam;
+  if(state.tiebreakRule!==undefined)m.tiebreakRule=state.tiebreakRule;
+  saveDB();renderSessionMatches();showToast('↩️ Score undone!');
+}
+function showUndoHistory(matchId){
+  if(!currentSession)return;
+  const m=currentSession.matches.find(m=>m.id===matchId);
+  if(!m||!m.scoreHistory||m.scoreHistory.length===0){showToast('No history yet','error');return;}
+  const modal=document.createElement('div');
+  modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:300;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);';
+  modal.innerHTML=`<div style="background:var(--surface);border-radius:16px;padding:1.5rem;max-width:400px;width:100%;margin:1rem;max-height:80vh;overflow-y:auto;">
+    <div style="font-family:var(--display);font-size:1.2rem;font-weight:800;margin-bottom:0.25rem;">↩️ Score History</div>
+    <div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);letter-spacing:0.1em;margin-bottom:1rem;">Tap any point to restore</div>
+    ${[...m.scoreHistory].reverse().map((h,ri)=>{const i=m.scoreHistory.length-1-ri;return `<div onclick="undoScore(${matchId},${i});this.closest('div[style*=fixed]').remove();" style="display:flex;justify-content:space-between;align-items:center;padding:0.6rem 0.75rem;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:0.4rem;cursor:pointer;" onmouseover="this.style.background='var(--green-light)'" onmouseout="this.style.background='var(--surface2)'">
+      <span style="font-family:var(--mono);font-size:0.62rem;color:var(--muted);">Point ${i+1}</span>
+      <span style="font-family:var(--display);font-size:1.1rem;">${h.scoreA} — ${h.scoreB}</span>
+      <span style="font-family:var(--mono);font-size:0.6rem;color:var(--green);">Restore</span>
+    </div>`;}).join('')}
+    <button onclick="this.closest('div[style*=fixed]').remove();" style="width:100%;margin-top:0.75rem;padding:0.7rem;border:1.5px solid var(--border);border-radius:8px;background:transparent;cursor:pointer;font-family:var(--mono);font-size:0.65rem;color:var(--muted);">Close</button>
+  </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click',e=>{if(e.target===modal)modal.remove();});
+}
+
+// ── SHARE SCORE ──
+function openShareScore(matchId){
+  if(!currentSession)return;
+  const m=currentSession.matches.find(m=>m.id===matchId);if(!m)return;
+  const tA=m.teamA.map(getSessionPlayerName).join(' & '),tB=m.teamB.map(getSessionPlayerName).join(' & ');
+  document.getElementById('shareMatchTitle').textContent=`Match #${m.id} · ${m.createdAt}`;
+  document.getElementById('shareTeamA').textContent=tA;
+  document.getElementById('shareTeamB').textContent=tB;
+  document.getElementById('shareScoreA').textContent=m.scoreA;
+  document.getElementById('shareScoreB').textContent=m.scoreB;
+  const winnerNames=m.winner?( m.winner==='A'?tA:tB):'';
+  document.getElementById('shareWinner').textContent=m.winner?`🏆 ${winnerNames} Win!`:'🔴 In Progress';
+  document.getElementById('shareTiebreak').textContent=m.tiebreakRule==='deuce'?'Via Deuce':m.tiebreakRule==='suddendeath'?'Via Sudden Death':m.status==='completed'?'Match Complete':'';
+  // Change card color for completed matches
+  const card=document.getElementById('shareScoreCard');
+  card.style.background=m.status==='completed'?'var(--green)':'#2d6a4f';
+  document.getElementById('shareScoreModal').style.display='flex';
+}
+function closeShareModal(){document.getElementById('shareScoreModal').style.display='none';}
+
+// ── RSVP ──
+function submitRSVP(status){
+  if(!currentSession)return;
+  const user=getCurrentUser();
+  if(!currentSession.rsvps)currentSession.rsvps=[];
+  const ex=currentSession.rsvps.find(r=>r.userId===user?.id);
+  if(ex){ex.status=status;ex.updatedAt=new Date().toISOString();}
+  else currentSession.rsvps.push({id:Date.now(),userId:user?.id,name:user?.name||'You',status,updatedAt:new Date().toISOString()});
+  saveDB();renderRSVP();showToast(status==='yes'?'✅ You\'re going!':'❌ Response saved');
+}
+function renderRSVP(){
+  if(!currentSession)return;
+  if(!currentSession.rsvps)currentSession.rsvps=[];
+  const rsvps=currentSession.rsvps;
+  const yes=rsvps.filter(r=>r.status==='yes'),no=rsvps.filter(r=>r.status==='no');
+  const pending=currentSession.players.filter(p=>!rsvps.find(r=>r.name===p.name));
+  document.getElementById('rsvpYesCount').textContent=yes.length;
+  document.getElementById('rsvpNoCount').textContent=no.length;
+  document.getElementById('rsvpPendingCount').textContent=pending.length;
+  const list=document.getElementById('rsvpList'),empty=document.getElementById('rsvpEmpty');
+  const all=[...yes.map(r=>({...r,label:'✅ Going',bg:'var(--green-light)',color:'var(--green)'})),...no.map(r=>({...r,label:'❌ Not Going',bg:'var(--red-light)',color:'var(--red)'})),...pending.map(p=>({name:p.name,label:'⏳ Pending',bg:'var(--surface2)',color:'var(--muted)'}))];
+  if(all.length===0){list.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  list.innerHTML=all.map(r=>`<div style="display:flex;align-items:center;gap:0.75rem;padding:0.6rem 0.75rem;background:${r.bg};border:1px solid var(--border);border-radius:8px;margin-bottom:0.4rem;">
+    <div style="width:30px;height:30px;border-radius:50%;background:${getColor(r.name)};display:flex;align-items:center;justify-content:center;color:white;font-size:0.65rem;font-weight:700;flex-shrink:0;">${getInitials(r.name)}</div>
+    <div style="flex:1;font-size:0.875rem;font-weight:500;">${r.name}</div>
+    <span style="font-family:var(--mono);font-size:0.58rem;color:${r.color};">${r.label}</span>
+  </div>`).join('');
+}
+
+// ── TOURNAMENT ──
+function generateTournament(){
+  if(!currentSession)return;
+  const players=currentSession.players;
+  if(players.length<4){showToast('Need at least 4 players','error');return;}
+  const format=document.getElementById('tournamentFormat').value;
+  const winScore=parseInt(document.getElementById('tournamentWinScore').value);
+  const shuffled=shuffle(players);
+  if(format==='roundrobin'){
+    const matches=[];let id=Date.now();
+    for(let i=0;i<shuffled.length;i++)
+      for(let j=i+1;j<shuffled.length;j++)
+        matches.push({id:id++,p1:shuffled[i].id,p2:shuffled[j].id,score1:0,score2:0,status:'pending',winner:null,winScore});
+    currentSession.tournament={format,matches,winScore,createdAt:new Date().toISOString()};
+  } else {
+    // Singles elimination with DOUBLES teams (pairs of 2)
+    // Pair players into teams of 2
+    const pairs=[];
+    const shuffled2=[...shuffled];
+    // If odd number, last player gets a solo pair
+    for(let i=0;i<shuffled2.length-1;i+=2){
+      pairs.push([shuffled2[i].id, shuffled2[i+1]?.id].filter(Boolean));
+    }
+    if(shuffled2.length%2!==0) pairs.push([shuffled2[shuffled2.length-1].id]);
+
+    // Pad pairs to power of 2 for clean bracket
+    let size=2;while(size<pairs.length)size*=2;
+    while(pairs.length<size)pairs.push([]); // bye pairs
+
+    const firstRound=[];let id=Date.now();
+    for(let i=0;i<size/2;i++){
+      const t1=pairs[i],t2=pairs[size-1-i];
+      const isBye=!t1.length||!t2.length;
+      firstRound.push({id:id++,teamA:t1,teamB:t2,scoreA:0,scoreB:0,
+        status:isBye?'bye':'pending',winner:(!t2.length)?'A':(!t1.length)?'B':null,
+        winScore,round:0});
+    }
+    firstRound.forEach(m=>{if(m.status==='bye')m.status='done';});
+    const rounds=[firstRound];
+    let prevCount=firstRound.length;
+    while(prevCount>1){
+      prevCount=Math.ceil(prevCount/2);
+      const round=[];
+      for(let i=0;i<prevCount;i++)
+        round.push({id:id++,teamA:[],teamB:[],scoreA:0,scoreB:0,status:'waiting',winner:null,winScore,round:rounds.length});
+      rounds.push(round);
+    }
+    advanceBracketWinners(rounds);
+    currentSession.tournament={format,rounds,winScore,champion:null,createdAt:new Date().toISOString()};
+  }
+  saveDB();renderTournament();showToast('Tournament generated!');
+}
+function advanceBracketWinners(rounds){
+  for(let ri=0;ri<rounds.length-1;ri++){
+    const curr=rounds[ri],next=rounds[ri+1];
+    curr.forEach((m,mi)=>{
+      if(m.status==='done'&&m.winner){
+        const nextIdx=Math.floor(mi/2),slot=mi%2===0?'teamA':'teamB';
+        const wt=m.winner==='A'?m.teamA:m.teamB;
+        if(next[nextIdx]){
+          next[nextIdx][slot]=wt;
+          if(next[nextIdx].teamA.length&&next[nextIdx].teamB.length&&next[nextIdx].status==='waiting')
+            next[nextIdx].status='pending';
+        }
+      }
+    });
+  }
+}
+function clearTournament(){if(!currentSession||!confirm('Clear tournament?'))return;currentSession.tournament=null;saveDB();renderTournament();showToast('Tournament cleared');}
+function getTournamentPlayerName(id){const p=currentSession?.players.find(p=>p.id===id);return p?p.name:'TBD';}
+function updateTournamentScore(matchId,team,delta){
+  if(!currentSession||!currentSession.tournament)return;
+  const t=currentSession.tournament;let m,ri=-1,mi=-1;
+  if(t.format==='roundrobin'){m=t.matches.find(m=>m.id===matchId);}
+  else{outer:for(let r=0;r<t.rounds.length;r++){for(let i=0;i<t.rounds[r].length;i++){if(t.rounds[r][i].id===matchId){m=t.rounds[r][i];ri=r;mi=i;break outer;}}}}
+  if(!m||m.status==='done'||m.status==='waiting'||m.status==='bye')return;
+  if(t.format==='roundrobin'){
+    if(team==='1')m.score1=Math.max(0,m.score1+delta);else m.score2=Math.max(0,m.score2+delta);
+    const ws=m.winScore||11;
+    if(m.score1>=ws||m.score2>=ws){m.status='done';m.winner=m.score1>=ws?'A':'B';showToast('Match done!');}
+  } else {
+    if(team==='A')m.scoreA=Math.max(0,m.scoreA+delta);else m.scoreB=Math.max(0,m.scoreB+delta);
+    const ws=m.winScore||11;
+    if(m.scoreA>=ws||m.scoreB>=ws){
+      m.status='done';m.winner=m.scoreA>=ws?'A':'B';
+      advanceBracketWinners(t.rounds);
+      const wt=m.winner==='A'?m.teamA:m.teamB;
+      if(ri===t.rounds.length-1||(ri===t.rounds.length-2&&t.rounds[t.rounds.length-1].length===1))
+        t.champion=wt.map(getTournamentPlayerName).join(' & ');
+      showToast('Match done!');
+    }
+  }
+  saveDB();renderTournament();
+}
+function renderTournament(){
+  if(!currentSession)return;
+  const t=currentSession.tournament;
+  const view=document.getElementById('tournamentView'),empty=document.getElementById('tournamentEmpty');
+  if(!t){view.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  if(t.format==='roundrobin')renderRoundRobin(t,view);
+  else renderBracket(t,view);
+}
+function renderRoundRobin(t,view){
+  const standings={};
+  currentSession.players.forEach(p=>{standings[p.id]={name:p.name,w:0,l:0,pts:0,played:0};});
+  t.matches.forEach(m=>{if(m.status==='done'){const w=m.winner==='A'?m.p1:m.p2,l=m.winner==='A'?m.p2:m.p1;if(standings[w]){standings[w].w++;standings[w].pts+=3;standings[w].played++;}if(standings[l]){standings[l].l++;standings[l].played++;}}});
+  const sorted=Object.values(standings).sort((a,b)=>b.pts-a.pts||b.w-a.w);
+  const done=t.matches.filter(m=>m.status==='done').length,total=t.matches.length;
+  const pct=total?Math.round((done/total)*100):0;
+  view.innerHTML=`<div style="display:grid;grid-template-columns:1fr 1.2fr;gap:1rem;">
+    <div>
+      <div class="card">
+        <div class="card-title">// Standings</div>
+        <div style="margin-bottom:1rem;">
+          <div style="display:flex;justify-content:space-between;font-family:var(--mono);font-size:0.6rem;color:var(--muted);margin-bottom:0.4rem;"><span>Progress</span><span>${done}/${total} matches</span></div>
+          <div style="height:6px;background:var(--border);border-radius:3px;"><div style="height:100%;width:${pct}%;background:var(--green);border-radius:3px;transition:width 0.4s;"></div></div>
+        </div>
+        ${sorted.map((p,i)=>`<div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;background:${i===0?'var(--green-light)':i===1?'#fef9ee':i===2?'#fef5ee':'var(--surface2)'};border:1.5px solid ${i===0?'var(--green3)':i===1?'#fcd34d':i===2?'#f4a261':'var(--border)'};border-radius:10px;margin-bottom:0.5rem;">
+          <div style="font-family:var(--display);font-size:1.5rem;width:32px;text-align:center;">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</div>
+          <div style="width:32px;height:32px;border-radius:50%;background:${getColor(p.name)};display:flex;align-items:center;justify-content:center;color:white;font-size:0.7rem;font-weight:700;flex-shrink:0;">${getInitials(p.name)}</div>
+          <div style="flex:1;"><div style="font-weight:600;font-size:0.875rem;">${p.name}</div><div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);">${p.played} played · ${p.w}W ${p.l}L</div></div>
+          <div style="text-align:right;"><div style="font-family:var(--display);font-size:1.3rem;color:${i===0?'var(--green)':'var(--text)'};">${p.pts}</div><div style="font-family:var(--mono);font-size:0.5rem;color:var(--muted);">pts</div></div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">// Match Schedule</div>
+      <div style="max-height:500px;overflow-y:auto;display:flex;flex-direction:column;gap:0.5rem;">
+        ${t.matches.map((m,idx)=>{
+          const n1=getTournamentPlayerName(m.p1),n2=getTournamentPlayerName(m.p2);
+          const isDone=m.status==='done',w1=m.winner==='A',w2=m.winner==='B';
+          return `<div style="background:${isDone?'var(--green-light)':'var(--surface2)'};border:1.5px solid ${isDone?'var(--green3)':'var(--border)'};border-radius:10px;padding:0.75rem 1rem;">
+            <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);letter-spacing:0.1em;margin-bottom:0.5rem;">MATCH ${idx+1} ${isDone?'· ✅ DONE':''}</div>
+            <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:0.5rem;align-items:center;">
+              <div style="display:flex;align-items:center;gap:0.4rem;font-weight:${w1?'700':'500'};color:${w1?'var(--green)':'var(--text)'};font-size:0.85rem;">
+                <div style="width:24px;height:24px;border-radius:50%;background:${getColor(n1)};display:flex;align-items:center;justify-content:center;color:white;font-size:0.6rem;font-weight:700;flex-shrink:0;">${getInitials(n1)}</div>${n1}${w1?' 🏆':''}
+              </div>
+              <div style="display:flex;flex-direction:column;align-items:center;gap:0.3rem;">
+                <div style="display:flex;align-items:center;gap:0.4rem;">
+                  ${!isDone?`<button onclick="updateTournamentScore(${m.id},'1',-1)" style="width:24px;height:24px;border-radius:5px;border:1px solid var(--border);background:var(--red-light);color:var(--red);cursor:pointer;font-size:0.8rem;">−</button>`:''}
+                  <span style="font-family:var(--display);font-size:1.5rem;color:${w1?'var(--green)':'var(--text)'};">${m.score1||0}</span>
+                  <span style="font-family:var(--mono);font-size:0.65rem;color:var(--muted2);">:</span>
+                  <span style="font-family:var(--display);font-size:1.5rem;color:${w2?'var(--green)':'var(--text)'};">${m.score2||0}</span>
+                  ${!isDone?`<button onclick="updateTournamentScore(${m.id},'2',1)" style="width:24px;height:24px;border-radius:5px;border:1px solid var(--green);background:var(--green-light);color:var(--green);cursor:pointer;font-size:0.8rem;">+</button>`:''}
+                </div>
+                ${!isDone?`<div style="display:flex;gap:0.3rem;">
+                  <button onclick="updateTournamentScore(${m.id},'1',1)" style="width:24px;height:24px;border-radius:5px;border:1px solid var(--green);background:var(--green-light);color:var(--green);cursor:pointer;font-size:0.8rem;">+</button>
+                  <button onclick="updateTournamentScore(${m.id},'2',-1)" style="width:24px;height:24px;border-radius:5px;border:1px solid var(--border);background:var(--red-light);color:var(--red);cursor:pointer;font-size:0.8rem;">−</button>
+                </div>`:''}
+              </div>
+              <div style="display:flex;align-items:center;justify-content:flex-end;gap:0.4rem;font-weight:${w2?'700':'500'};color:${w2?'var(--green)':'var(--text)'};font-size:0.85rem;">
+                ${w2?'🏆 ':''} ${n2}
+                <div style="width:24px;height:24px;border-radius:50%;background:${getColor(n2)};display:flex;align-items:center;justify-content:center;color:white;font-size:0.6rem;font-weight:700;flex-shrink:0;">${getInitials(n2)}</div>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+function renderBracket(t,view){
+  const rName=ri=>{const total=t.rounds.length;if(ri===total-1)return'🏆 FINAL';if(ri===total-2)return'🥊 SEMI-FINAL';if(ri===total-3)return'⚔️ QUARTER-FINAL';return`Round ${ri+1}`;};
+  const champion=t.champion;
+  view.innerHTML=`
+    ${champion?`<div style="background:linear-gradient(135deg,var(--green),var(--green2));border-radius:14px;padding:1.5rem;text-align:center;margin-bottom:1.5rem;">
+      <div style="font-family:var(--mono);font-size:0.65rem;color:rgba(255,255,255,0.7);letter-spacing:0.2em;text-transform:uppercase;margin-bottom:0.5rem;">🏆 Tournament Champion</div>
+      <div style="font-family:var(--display);font-size:2.5rem;font-weight:800;color:white;">${champion}</div>
+      <div style="font-size:2rem;margin-top:0.5rem;">🎉🏓🎉</div>
+    </div>`:''}
+    <div style="overflow-x:auto;padding-bottom:1rem;">
+      <div style="display:flex;gap:0;min-width:max-content;align-items:flex-start;">
+        ${t.rounds.map((round,ri)=>`
+          <div style="display:flex;flex-direction:column;min-width:230px;">
+            <div style="padding:0.6rem 1rem;font-family:var(--mono);font-size:0.58rem;color:var(--blue);letter-spacing:0.2em;text-transform:uppercase;text-align:center;border-bottom:2px solid var(--border);background:var(--surface2);">
+              ${rName(ri)}
+            </div>
+            <div style="display:flex;flex-direction:column;padding:0.75rem 0.5rem;gap:0;position:relative;">
+              ${round.map((m,mi)=>{
+                const isBye=m.status==='bye',isDone=m.status==='done',isWaiting=m.status==='waiting',isPending=m.status==='pending';
+                const n1=m.teamA.length?m.teamA.map(getTournamentPlayerName).join(' & '):'TBD';
+                const n2=m.teamB.length?m.teamB.map(getTournamentPlayerName).join(' & '):'TBD';
+                const w1=m.winner==='A',w2=m.winner==='B';
+                const spacer=ri===0?0:Math.pow(2,ri)*14-14;
+                const borderColor=isDone?'var(--green3)':isWaiting?'var(--border2)':isPending?'var(--green)':'var(--border)';
+                return `<div style="margin-top:${mi===0?spacer:spacer*2}px;margin-bottom:${spacer}px;">
+                  <div style="background:var(--surface);border:2px solid ${borderColor};border-radius:10px;overflow:hidden;transition:all 0.2s;${isWaiting?'opacity:0.45;':''}">
+                    <div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;border-bottom:1px solid var(--border);background:${w1?'var(--green-light)':'var(--surface)'};">
+                      <div style="width:22px;height:22px;border-radius:50%;background:${n1!=='TBD'?getColor(n1):'var(--border)'};display:flex;align-items:center;justify-content:center;color:white;font-size:0.55rem;font-weight:700;flex-shrink:0;">${n1!=='TBD'?getInitials(n1):'?'}</div>
+                      <span style="flex:1;font-size:0.8rem;font-weight:${w1?'700':'400'};color:${w1?'var(--green)':isWaiting?'var(--muted)':'var(--text)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px;">${n1}${w1?' 🏆':''}</span>
+                      <div style="display:flex;align-items:center;gap:0.25rem;flex-shrink:0;">
+                        ${isPending?`<button onclick="updateTournamentScore(${m.id},'A',-1)" style="width:20px;height:20px;border-radius:4px;border:1px solid var(--border);background:var(--red-light);color:var(--red);cursor:pointer;font-size:0.7rem;display:flex;align-items:center;justify-content:center;">−</button>`:''}
+                        <span style="font-family:var(--display);font-size:1.1rem;min-width:20px;text-align:center;color:${w1?'var(--green)':'var(--text)'};">${isDone||isPending?m.scoreA:''}</span>
+                        ${isPending?`<button onclick="updateTournamentScore(${m.id},'A',1)" style="width:20px;height:20px;border-radius:4px;border:1px solid var(--green);background:var(--green-light);color:var(--green);cursor:pointer;font-size:0.7rem;display:flex;align-items:center;justify-content:center;">+</button>`:''}
+                      </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;background:${w2?'var(--green-light)':'var(--surface)'};">
+                      <div style="width:22px;height:22px;border-radius:50%;background:${n2!=='TBD'?getColor(n2):'var(--border)'};display:flex;align-items:center;justify-content:center;color:white;font-size:0.55rem;font-weight:700;flex-shrink:0;">${n2!=='TBD'?getInitials(n2):'?'}</div>
+                      <span style="flex:1;font-size:0.8rem;font-weight:${w2?'700':'400'};color:${w2?'var(--green)':isWaiting?'var(--muted)':'var(--text)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px;">${n2}${w2?' 🏆':''}</span>
+                      <div style="display:flex;align-items:center;gap:0.25rem;flex-shrink:0;">
+                        ${isPending?`<button onclick="updateTournamentScore(${m.id},'B',-1)" style="width:20px;height:20px;border-radius:4px;border:1px solid var(--border);background:var(--red-light);color:var(--red);cursor:pointer;font-size:0.7rem;display:flex;align-items:center;justify-content:center;">−</button>`:''}
+                        <span style="font-family:var(--display);font-size:1.1rem;min-width:20px;text-align:center;color:${w2?'var(--green)':'var(--text)'};">${isDone||isPending?m.scoreB:''}</span>
+                        ${isPending?`<button onclick="updateTournamentScore(${m.id},'B',1)" style="width:20px;height:20px;border-radius:4px;border:1px solid var(--green);background:var(--green-light);color:var(--green);cursor:pointer;font-size:0.7rem;display:flex;align-items:center;justify-content:center;">+</button>`:''}
+                      </div>
+                    </div>
+                    ${isBye?`<div style="padding:0.2rem 0.75rem;background:var(--surface2);text-align:center;"><span style="font-family:var(--mono);font-size:0.5rem;color:var(--muted);letter-spacing:0.1em;">BYE — AUTO ADVANCE</span></div>`:''}
+                  </div>
+                </div>`;
+              }).join('')}
+            </div>
+          </div>
+          ${ri<t.rounds.length-1?`<div style="width:28px;display:flex;flex-direction:column;position:relative;padding-top:${46+(Math.pow(2,ri)*14)}px;">
+            ${round.map((_,mi)=>`<div style="height:${Math.pow(2,ri)*28+14}px;position:relative;flex-shrink:0;">
+              ${mi%2===0?`<div style="position:absolute;right:0;top:50%;width:14px;height:calc(50% + ${Math.pow(2,ri)*14+7}px);border-top:2px solid var(--border2);border-right:2px solid var(--border2);border-bottom:2px solid var(--border2);border-radius:0 5px 5px 0;transform:translateY(-50%);"></div>`:''}
+            </div>`).join('')}
+          </div>`:''}
+        `).join('')}
+        ${champion?`<div style="display:flex;align-items:center;padding-top:${46+(Math.pow(2,t.rounds.length-1)*14)}px;padding-left:8px;">
+          <div style="background:var(--green);border-radius:10px;padding:0.75rem 1rem;text-align:center;min-width:80px;">
+            <div style="font-size:1.5rem;">🏆</div>
+            <div style="font-family:var(--display);font-size:0.8rem;color:white;margin-top:0.25rem;white-space:nowrap;">${champion}</div>
+          </div>
+        </div>`:''}
+      </div>
+    </div>
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-top:1rem;padding:0.75rem 1rem;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
+      <span style="font-family:var(--mono);font-size:0.6rem;color:var(--muted);letter-spacing:0.06em;font-weight:500;">Legend:</span>
+      <span style="display:inline-flex;align-items:center;gap:0.35rem;font-family:var(--mono);font-size:0.58rem;color:var(--muted);"><span style="width:12px;height:12px;border-radius:3px;border:2px solid var(--green);display:inline-block;"></span>Active match</span>
+      <span style="display:inline-flex;align-items:center;gap:0.35rem;font-family:var(--mono);font-size:0.58rem;color:var(--muted);"><span style="width:12px;height:12px;border-radius:3px;background:var(--green-light);border:2px solid var(--green3);display:inline-block;"></span>Completed</span>
+      <span style="display:inline-flex;align-items:center;gap:0.35rem;font-family:var(--mono);font-size:0.58rem;color:var(--muted);"><span style="width:12px;height:12px;border-radius:3px;border:2px solid var(--border2);display:inline-block;opacity:0.5;"></span>Waiting for winner</span>
+      <span style="display:inline-flex;align-items:center;gap:0.35rem;font-family:var(--mono);font-size:0.58rem;color:var(--muted);"><span style="width:12px;height:12px;border-radius:3px;background:var(--surface2);border:1px solid var(--border);display:inline-block;"></span>BYE — auto advance</span>
+    </div>
+  `;
+}
+
+// ── PLAYER PROFILES ──
+function openPlayerProfile(playerName){
+  const user=getCurrentUser();
+  const allSessions=db.sessions.filter(s=>s.ownerId===user?.id);
+  const allInstances=allSessions.flatMap(s=>s.players.filter(p=>p.name===playerName));
+  if(allInstances.length===0)return;
+  const agg={name:playerName,level:allInstances[0].level,wins:0,losses:0,points:0,matchesPlayed:0,sessions:allInstances.length};
+  allInstances.forEach(p=>{agg.wins+=p.wins;agg.losses+=p.losses;agg.points+=p.points;agg.matchesPlayed+=p.matchesPlayed;});
+  const wr=agg.matchesPlayed>0?Math.round((agg.wins/agg.matchesPlayed)*100):0;
+  const playerMatches=[];
+  allSessions.forEach(s=>{
+    const pInS=s.players.find(p=>p.name===playerName);if(!pInS)return;
+    s.matches.filter(m=>m.status==='completed').forEach(m=>{
+      const inA=m.teamA.includes(pInS.id),inB=m.teamB.includes(pInS.id);
+      if(!inA&&!inB)return;
+      const won=(inA&&m.winner==='A')||(inB&&m.winner==='B');
+      const myTeam=inA?m.teamA:m.teamB,oppTeam=inA?m.teamB:m.teamA;
+      playerMatches.push({session:s.name,mates:myTeam.filter(id=>id!==pInS.id).map(id=>{const pp=s.players.find(p=>p.id===id);return pp?.name||'?';}),opponents:oppTeam.map(id=>{const pp=s.players.find(p=>p.id===id);return pp?.name||'?';}),scoreA:m.scoreA,scoreB:m.scoreB,won,createdAt:m.createdAt});
+    });
+  });
+  const badges=[];
+  if(agg.wins>=1)badges.push({icon:'🏆',label:'First Win'});
+  if(agg.wins>=5)badges.push({icon:'🔥',label:'5 Wins'});
+  if(agg.wins>=10)badges.push({icon:'⭐',label:'10 Wins'});
+  if(agg.matchesPlayed>=10)badges.push({icon:'💪',label:'10 Matches'});
+  if(wr>=70)badges.push({icon:'👑',label:'Top Player'});
+  if(agg.sessions>=3)badges.push({icon:'🎯',label:'Regular'});
+  switchView('player-profile');
+  document.getElementById('playerProfileName').textContent=playerName;
+  document.getElementById('playerProfileLevel').textContent=agg.level+' · '+agg.sessions+' session'+(agg.sessions!==1?'s':'');
+  document.getElementById('playerProfileAvatar').textContent=getInitials(playerName);
+  document.getElementById('playerProfileAvatar').style.background=getColor(playerName);
+  document.getElementById('playerProfileNameBig').textContent=playerName;
+  document.getElementById('playerProfileLevelBig').textContent='🎯 '+agg.level;
+  document.getElementById('playerWinRate').textContent=wr+'%';
+  document.getElementById('playerWinRateBar').style.width=wr+'%';
+  document.getElementById('playerProfileBadges').innerHTML=badges.map(b=>`<span style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--surface2);border:1px solid var(--border);border-radius:20px;padding:0.25rem 0.65rem;font-family:var(--mono);font-size:0.6rem;color:var(--muted);margin:0.2rem;">${b.icon} ${b.label}</span>`).join('');
+  document.getElementById('playerStatGrid').innerHTML=`
+    <div class="profile-stat"><div class="profile-stat-num" style="color:var(--green);">${agg.wins}</div><div class="profile-stat-label">Wins</div></div>
+    <div class="profile-stat"><div class="profile-stat-num" style="color:var(--red);">${agg.losses}</div><div class="profile-stat-label">Losses</div></div>
+    <div class="profile-stat"><div class="profile-stat-num">${agg.matchesPlayed}</div><div class="profile-stat-label">Matches</div></div>
+    <div class="profile-stat"><div class="profile-stat-num" style="color:var(--yellow);">${agg.points}</div><div class="profile-stat-label">Points</div></div>
+    <div class="profile-stat"><div class="profile-stat-num">${agg.sessions}</div><div class="profile-stat-label">Sessions</div></div>
+    <div class="profile-stat"><div class="profile-stat-num">${wr}%</div><div class="profile-stat-label">Win Rate</div></div>
+  `;
+  const hist=document.getElementById('playerMatchHistory'),histEmpty=document.getElementById('playerHistoryEmpty');
+  if(playerMatches.length===0){hist.innerHTML='';histEmpty.style.display='block';return;}
+  histEmpty.style.display='none';
+  hist.innerHTML=playerMatches.slice().reverse().map(m=>`
+    <div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem;background:${m.won?'var(--green-light)':'var(--red-light)'};border:1px solid ${m.won?'var(--green3)':'#f5c6c6'};border-radius:8px;margin-bottom:0.5rem;">
+      <div style="font-size:1.2rem;">${m.won?'🏆':'💔'}</div>
+      <div style="flex:1;">
+        <div style="font-size:0.82rem;font-weight:500;color:${m.won?'var(--green)':'var(--red)'};">${m.won?'Won':'Lost'} · ${m.scoreA}—${m.scoreB}</div>
+        <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-top:2px;">Partner: ${m.mates.join(', ')||'Solo'} vs ${m.opponents.join(', ')}</div>
+        <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted2);">${m.session} · ${m.createdAt}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+
+// ── SESSION LEADERBOARD (item 5) ──
+function renderSessionLeaderboard(){
+  if(!currentSession)return;
+  const body=document.getElementById('sessionLbBody'),empty=document.getElementById('sessionLbEmpty'),count=document.getElementById('sessionLbCount');
+  const pm={};
+  currentSession.players.forEach(p=>{pm[p.id]={name:p.name,w:p.wins||0,l:p.losses||0,played:p.matchesPlayed||0};});
+  const players=Object.values(pm).filter(p=>p.played>0).sort((a,b)=>(b.w-b.l)-(a.w-a.l)||b.w-a.w);
+  if(count)count.textContent=`${players.length} player${players.length!==1?'s':''}`;
+  if(players.length===0){if(body)body.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  body.innerHTML=players.map((p,i)=>{
+    const wr=p.played>0?Math.round((p.w/p.played)*100):0;
+    return `<tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:0.7rem 1rem;font-family:var(--display);font-size:1.1rem;">${i===0?'🥇':i===1?'🥈':i===2?'🥉':i+1}</td>
+      <td style="padding:0.7rem 1rem;"><div style="display:flex;align-items:center;gap:0.5rem;"><div style="width:26px;height:26px;border-radius:50%;background:${getColor(p.name)};display:flex;align-items:center;justify-content:center;color:white;font-size:0.6rem;font-weight:700;">${getInitials(p.name)}</div><span style="font-weight:500;font-size:0.875rem;">${p.name}</span></div></td>
+      <td style="padding:0.7rem 1rem;color:var(--green);font-weight:700;font-size:0.9rem;">${p.w}</td>
+      <td style="padding:0.7rem 1rem;color:var(--red);font-size:0.9rem;">${p.l}</td>
+      <td style="padding:0.7rem 1rem;">
+        <div style="font-family:var(--mono);font-size:0.7rem;margin-bottom:3px;">${wr}%</div>
+        <div style="height:4px;width:70px;background:var(--border);border-radius:2px;"><div style="height:100%;width:${wr}%;background:${wr>=70?'var(--green)':wr>=50?'var(--yellow)':'var(--red)'};border-radius:2px;"></div></div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+// ── CREATE MATCH MANUALLY ──
+
+function openCreateMatchModal(){
+  // Recover currentSession if it got lost
+  if(!currentSession){
+    const view=document.getElementById('view-session-detail');
+    const sid=view?.dataset?.sessionId;
+    if(sid) currentSession=db.sessions.find(s=>s.id===parseInt(sid))||null;
+  }
+  if(!currentSession){
+    const titleEl=document.getElementById('sessionDetailTitle');
+    if(titleEl&&titleEl.textContent)
+      currentSession=db.sessions.find(s=>s.name===titleEl.textContent.trim())||null;
+  }
+  // Last resort — just pick the first active session
+  if(!currentSession){
+    currentSession=db.sessions.find(s=>s.status==='active')||db.sessions[db.sessions.length-1]||null;
+  }
+  if(!currentSession){showToast('No session found — please open a session first','error');return;}
+
+  cmTeamA=[];cmTeamB=[];
+  try{cmRenderLists();}catch(e){console.error('cmRenderLists error:',e);}
+
+  const players=currentSession.players||[];
+  ['cmTeamASelect','cmTeamBSelect'].forEach(id=>{
+    const sel=document.getElementById(id);if(!sel)return;
+    sel.innerHTML='<option value="">Pick player...</option>';
+    players.forEach(p=>{
+      const opt=document.createElement('option');
+      opt.value=p.id;
+      opt.textContent=p.name+(p.level?' ('+p.level+')':'');
+      sel.appendChild(opt);
+    });
+  });
+
+  const gA=document.getElementById('cmTeamAGuest');if(gA)gA.value='';
+  const gB=document.getElementById('cmTeamBGuest');if(gB)gB.value='';
+  const sum=document.getElementById('cmSummary');if(sum)sum.style.display='none';
+
+  const modal=document.getElementById('createMatchModal');
+  if(!modal){showToast('Modal not found — please refresh','error');return;}
+  modal.classList.add('open');
+  modal.style.display='flex';
+}
+
+function cmAddPlayer(team){
+  const sel=document.getElementById(team==='A'?'cmTeamASelect':'cmTeamBSelect');
+  if(!sel||!sel.value){showToast('Pick a player first','error');return;}
+  const pid=parseInt(sel.value);
+  const player=currentSession.players.find(p=>p.id===pid);if(!player)return;
+  const arr=team==='A'?cmTeamA:cmTeamB;
+  const other=team==='A'?cmTeamB:cmTeamA;
+  if(arr.find(p=>p.id===pid)){showToast(`${player.name} already in Team ${team}`,'error');return;}
+  if(other.find(p=>p.id===pid)){showToast(`${player.name} is already in the other team`,'error');return;}
+  if(arr.length>=2){showToast('Max 2 players per team','error');return;}
+  arr.push({id:pid,name:player.name,isGuest:false});
+  sel.value='';cmRenderLists();
+}
+
+function cmAddGuest(team){
+  const input=document.getElementById(team==='A'?'cmTeamAGuest':'cmTeamBGuest');
+  const name=input?.value.trim();
+  if(!name){showToast('Enter a guest name','error');return;}
+  const arr=team==='A'?cmTeamA:cmTeamB;
+  if(arr.length>=2){showToast('Max 2 players per team','error');return;}
+  if(arr.find(p=>p.name.toLowerCase()===name.toLowerCase())){showToast('Name already added','error');return;}
+  let gp=currentSession.players.find(p=>p.name.toLowerCase()===name.toLowerCase());
+  if(!gp){
+    gp={id:Date.now()+Math.floor(Math.random()*999),name,level:'intermediate',role:'member',status:'waiting',wins:0,losses:0,points:0,matchesPlayed:0,joinedAt:new Date().toISOString(),isGuest:true};
+    currentSession.players.push(gp);saveDB();
+  }
+  arr.push({id:gp.id,name:gp.name,isGuest:true});
+  input.value='';cmRenderLists();
+}
+
+function cmRemove(team,idx){
+  if(team==='A')cmTeamA.splice(idx,1);else cmTeamB.splice(idx,1);
+  cmRenderLists();
+}
+
+function cmRenderLists(){
+  ['A','B'].forEach(team=>{
+    const arr=team==='A'?cmTeamA:cmTeamB;
+    const el=document.getElementById(`cmTeam${team}List`);if(!el)return;
+    const color=team==='A'?'var(--green)':'var(--blue)';
+    const bg=team==='A'?'var(--green-light)':'var(--blue-light)';
+    const bdr=team==='A'?'var(--green3)':'#90caf9';
+    el.innerHTML=arr.length===0
+      ?`<div style="font-family:var(--mono);font-size:0.6rem;color:var(--muted2);padding:0.5rem;text-align:center;border:1.5px dashed var(--border);border-radius:6px;">No players yet</div>`
+      :arr.map((p,i)=>`
+        <div style="display:flex;align-items:center;gap:0.5rem;background:${bg};border:1px solid ${bdr};border-radius:6px;padding:0.35rem 0.65rem;">
+          <div style="width:24px;height:24px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;color:white;font-size:0.6rem;font-weight:700;flex-shrink:0;">${getInitials(p.name)}</div>
+          <span style="flex:1;font-size:0.82rem;font-weight:500;">${p.name}${p.isGuest?'<span style="font-family:var(--mono);font-size:0.5rem;color:var(--muted);margin-left:0.3rem;">guest</span>':''}</span>
+          <button onclick="cmRemove('${team}',${i})" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:0.85rem;padding:0;">✕</button>
+        </div>`).join('');
+  });
+  const summary=document.getElementById('cmSummary');
+  if(summary&&(cmTeamA.length>0||cmTeamB.length>0)){
+    summary.style.display='block';
+    const a=cmTeamA.map(p=>p.name).join(' & ')||'—';
+    const b=cmTeamB.map(p=>p.name).join(' & ')||'—';
+    summary.innerHTML=`⚡ <strong>${a}</strong> &nbsp;vs&nbsp; <strong>${b}</strong> &nbsp;·&nbsp; Team A: ${cmTeamA.length}/2 &nbsp;·&nbsp; Team B: ${cmTeamB.length}/2`;
+  } else if(summary){summary.style.display='none';}
+}
+
+function confirmCreateMatch(){
+  if(cmTeamA.length===0){showToast('Add at least 1 player to Team A','error');return;}
+  if(cmTeamB.length===0){showToast('Add at least 1 player to Team B','error');return;}
+  const winScore=parseInt(document.getElementById('createMatchWinScore').value)||11;
+  currentSession.matches.push({
+    id:currentSession.matchCounter++,
+    teamA:cmTeamA.map(p=>p.id),teamB:cmTeamB.map(p=>p.id),
+    scoreA:0,scoreB:0,winScore,status:'active',winner:null,tiebreakRule:null,
+    server1Team:null,server1Idx:null,server2Team:null,server2Idx:null,
+    scoreHistory:[],createdAt:new Date().toLocaleTimeString(),mode:'manual'
+  });
+  cmTeamA=[];cmTeamB=[];
+  saveDB();closeModal('createMatchModal');
+  switchInnerTab('matches-tab');renderSessionMatches();
+  showToast('Match started! 🏓');
+}
+
+function generateQR(text, size=180){
+  // Simple QR-like visual using a hash-based pattern (visual placeholder)
+  // In production use a real QR library like qrcode.js
+  const modules=21, cellSize=Math.floor(size/modules);
+  const hash=text.split('').reduce((a,c)=>((a<<5)-a)+c.charCodeAt(0)|0,0);
+  let svg=`<svg width="${modules*cellSize}" height="${modules*cellSize}" xmlns="http://www.w3.org/2000/svg" style="display:block;">`;
+  svg+=`<rect width="100%" height="100%" fill="white"/>`;
+  // Finder patterns (3 corners)
+  const finder=(x,y)=>{
+    svg+=`<rect x="${x*cellSize}" y="${y*cellSize}" width="${7*cellSize}" height="${7*cellSize}" fill="#1a6b3c"/>`;
+    svg+=`<rect x="${(x+1)*cellSize}" y="${(y+1)*cellSize}" width="${5*cellSize}" height="${5*cellSize}" fill="white"/>`;
+    svg+=`<rect x="${(x+2)*cellSize}" y="${(y+2)*cellSize}" width="${3*cellSize}" height="${3*cellSize}" fill="#1a6b3c"/>`;
+  };
+  finder(0,0);finder(14,0);finder(0,14);
+  // Data modules based on text hash
+  for(let row=0;row<modules;row++){
+    for(let col=0;col<modules;col++){
+      // Skip finder pattern areas
+      if((row<9&&col<9)||(row<9&&col>12)||(row>12&&col<9))continue;
+      const seed=(hash^(row*37+col*53))&0xFFFFFF;
+      if((seed%3)===0)svg+=`<rect x="${col*cellSize}" y="${row*cellSize}" width="${cellSize}" height="${cellSize}" fill="#1a6b3c"/>`;
+    }
+  }
+  // Add text at bottom
+  svg+=`<text x="${(modules*cellSize)/2}" y="${modules*cellSize+14}" text-anchor="middle" font-family="monospace" font-size="10" fill="#7a7060">${text}</text>`;
+  svg+='</svg>';
+  return svg;
+}
+
+function renderQRCode(){
+  if(!currentSession)return;
+  const container=document.getElementById('qrCodeContainer');
+  if(!container)return;
+  const code=currentSession.roomCode;
+  container.innerHTML=`<div class="qr-wrap">${generateQR(code,168)}</div>`;
+}
+
+function downloadQR(){
+  if(!currentSession)return;
+  const svg=document.querySelector('#qrCodeContainer svg');
+  if(!svg){showToast('QR not found','error');return;}
+  const blob=new Blob([svg.outerHTML],{type:'image/svg+xml'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download=`courtflow-${currentSession.roomCode}.svg`;
+  a.click();URL.revokeObjectURL(url);
+  showToast('QR downloaded! ⬇️');
+}
+
+function shareSessionCode(){
+  if(!currentSession)return;
+  const text=`Join my CourtFlow open play session!\nRoom Code: ${currentSession.roomCode}\nLink: courtflow.app/join/${currentSession.roomCode}`;
+  if(navigator.share){navigator.share({title:'Join CourtFlow Session',text});}
+  else{navigator.clipboard?.writeText(text).then(()=>showToast('Copied to clipboard! 📋')).catch(()=>showToast(text,'info'));}
+}
+
+// ── SESSION ACCESS TYPE ──
+function setSessionType(type){
+  if(!currentSession)return;
+  currentSession.accessType=type;
+  saveDB();renderInviteTab();
+  showToast(type==='open'?'🔓 Session is now open — anyone can join!':'🔒 Approval required to join');
+}
+
+function renderInviteTab(){
+  if(!currentSession)return;
+  const type=currentSession.accessType||'open';
+  const openEl=document.getElementById('typeOpen'),approvalEl=document.getElementById('typeApproval');
+  if(openEl&&approvalEl){
+    openEl.className=type==='open'?'type-active':'';
+    openEl.style.cssText=`flex:1;padding:1rem;border-radius:10px;border:2px solid ${type==='open'?'var(--green)':'var(--border)'};cursor:pointer;text-align:center;transition:all 0.2s;background:${type==='open'?'var(--green-light)':'var(--surface)'};`;
+    approvalEl.style.cssText=`flex:1;padding:1rem;border-radius:10px;border:2px solid ${type==='approval'?'var(--green)':'var(--border)'};cursor:pointer;text-align:center;transition:all 0.2s;background:${type==='approval'?'var(--green-light)':'var(--surface)'};`;
+  }
+  const info=document.getElementById('sessionTypeInfo');
+  if(info) info.textContent=type==='open'?'🔓 Open session — anyone with the code or link can join instantly as a Member.':'🔒 Approval required — join requests must be approved by Owner or Admin before players can see the session.';
+  const reqCard=document.getElementById('joinRequestsCard');
+  if(reqCard) reqCard.style.display=type==='approval'?'block':'none';
+  renderJoinRequests();
+  renderJoinFeed();
+  renderQRCode();
+}
+
+// ── JOIN REQUESTS ──
+function simulateJoinRequest(name){
+  // Simulates a player requesting to join (in production this would be real-time)
+  if(!currentSession)return;
+  if(!currentSession.joinRequests)currentSession.joinRequests=[];
+  if(!currentSession.joinFeed)currentSession.joinFeed=[];
+  const type=currentSession.accessType||'open';
+  if(type==='open'){
+    // Auto add as member
+    if(!currentSession.players.find(p=>p.name===name)){
+      currentSession.players.push({id:Date.now(),name,level:'intermediate',role:'member',status:'waiting',wins:0,losses:0,points:0,matchesPlayed:0,joinedAt:new Date().toISOString()});
+    }
+    currentSession.joinFeed.unshift({id:Date.now(),name,type:'joined',time:new Date().toLocaleTimeString(),read:false});
+    addNotification(`${name} joined "${currentSession.name}"`,currentSession.id,'join');
+  } else {
+    // Add to requests
+    if(!currentSession.joinRequests.find(r=>r.name===name&&r.status==='pending')){
+      currentSession.joinRequests.push({id:Date.now(),name,requestedAt:new Date().toISOString(),status:'pending'});
+      currentSession.joinFeed.unshift({id:Date.now(),name,type:'requested',time:new Date().toLocaleTimeString(),read:false});
+      addNotification(`${name} wants to join "${currentSession.name}"`,currentSession.id,'request');
+    }
+  }
+  saveDB();renderJoinRequests();renderJoinFeed();renderInviteTab();
+  if(type==='open') renderSessionPlayers();
+  showToast(type==='open'?`${name} joined! 👋`:`Join request from ${name}!`,'info');
+}
+
+function approveJoinRequest(reqId){
+  if(!currentSession)return;
+  const req=currentSession.joinRequests?.find(r=>r.id===reqId);
+  if(!req)return;
+  req.status='approved';
+  if(!currentSession.players.find(p=>p.name===req.name)){
+    currentSession.players.push({id:Date.now(),name:req.name,level:'intermediate',role:'member',status:'waiting',wins:0,losses:0,points:0,matchesPlayed:0,joinedAt:new Date().toISOString()});
+  }
+  if(!currentSession.joinFeed)currentSession.joinFeed=[];
+  currentSession.joinFeed.unshift({id:Date.now(),name:req.name,type:'approved',time:new Date().toLocaleTimeString(),read:false});
+  addNotification(`You approved ${req.name} to join`,currentSession.id,'approve');
+  saveDB();renderJoinRequests();renderJoinFeed();renderSessionPlayers();
+  showToast(`${req.name} approved! ✅`);
+}
+
+function denyJoinRequest(reqId){
+  if(!currentSession)return;
+  const req=currentSession.joinRequests?.find(r=>r.id===reqId);
+  if(!req)return;
+  req.status='denied';
+  if(!currentSession.joinFeed)currentSession.joinFeed=[];
+  currentSession.joinFeed.unshift({id:Date.now(),name:req.name,type:'denied',time:new Date().toLocaleTimeString(),read:false});
+  saveDB();renderJoinRequests();renderJoinFeed();
+  showToast(`${req.name} denied`,'error');
+}
+
+function renderJoinRequests(){
+  if(!currentSession)return;
+  const list=document.getElementById('joinRequestsList'),empty=document.getElementById('joinRequestsEmpty'),badge=document.getElementById('joinRequestBadge');
+  if(!list)return;
+  const pending=(currentSession.joinRequests||[]).filter(r=>r.status==='pending');
+  if(badge){
+    badge.textContent=pending.length;
+    badge.style.display=pending.length?'inline':'none';
+  }
+  if(pending.length===0){list.innerHTML='';if(empty)empty.style.display='block';return;}
+  if(empty)empty.style.display='none';
+  list.innerHTML=pending.map(r=>`
+    <div class="join-req">
+      <div style="width:34px;height:34px;border-radius:50%;background:${getColor(r.name)};display:flex;align-items:center;justify-content:center;color:white;font-size:0.7rem;font-weight:700;flex-shrink:0;">${getInitials(r.name)}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;font-size:0.875rem;">${r.name}</div>
+        <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);">Wants to join · ${new Date(r.requestedAt).toLocaleTimeString()}</div>
+      </div>
+      <div class="join-req-actions">
+        <button onclick="approveJoinRequest(${r.id})" style="padding:0.35rem 0.75rem;background:var(--green-light);border:1.5px solid var(--green3);border-radius:6px;color:var(--green);font-family:var(--mono);font-size:0.6rem;cursor:pointer;font-weight:600;">✅ Approve</button>
+        <button onclick="denyJoinRequest(${r.id})" style="padding:0.35rem 0.75rem;background:var(--red-light);border:1.5px solid #f5c6c6;border-radius:6px;color:var(--red);font-family:var(--mono);font-size:0.6rem;cursor:pointer;">❌ Deny</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderJoinFeed(){
+  if(!currentSession)return;
+  const feed=document.getElementById('joinFeed'),empty=document.getElementById('joinFeedEmpty');
+  if(!feed)return;
+  const items=(currentSession.joinFeed||[]).slice(0,20);
+  if(items.length===0){feed.innerHTML='';if(empty)empty.style.display='block';return;}
+  if(empty)empty.style.display='none';
+  const icons={joined:'👋',requested:'🔔',approved:'✅',denied:'❌'};
+  const colors={joined:'var(--green)',requested:'var(--blue)',approved:'var(--green)',denied:'var(--red)'};
+  feed.innerHTML=items.map(item=>`
+    <div style="display:flex;align-items:center;gap:0.6rem;padding:0.5rem 0.6rem;background:var(--surface2);border-radius:8px;border-left:3px solid ${colors[item.type]||'var(--muted)'};">
+      <span style="font-size:0.9rem;">${icons[item.type]||'📌'}</span>
+      <div style="flex:1;">
+        <span style="font-weight:600;font-size:0.8rem;">${item.name}</span>
+        <span style="font-size:0.8rem;color:var(--muted);"> ${item.type==='joined'?'joined the session':item.type==='requested'?'requested to join':item.type==='approved'?'was approved':'was denied'}</span>
+      </div>
+      <span style="font-family:var(--mono);font-size:0.55rem;color:var(--muted2);flex-shrink:0;">${item.time}</span>
+    </div>
+  `).join('');
+  // Mark as read
+  (currentSession.joinFeed||[]).forEach(i=>i.read=true);
+  saveDB();
+}
+
+function clearJoinFeed(){
+  if(!currentSession)return;
+  currentSession.joinFeed=[];saveDB();renderJoinFeed();
+}
+
+// Demo button to simulate a join
+function simulateDemoJoin(){
+  const names=['Alex','Sam','Jordan','Casey','Riley','Morgan','Taylor'];
+  const n=names[Math.floor(Math.random()*names.length)]+' '+Math.floor(Math.random()*99);
+  simulateJoinRequest(n);
+}
+
+// ── NOTIFICATIONS ──
+let notifications=JSON.parse(localStorage.getItem('courtflow_notifs')||'[]');
+
+function addNotification(msg,sessionId,type){
+  notifications.unshift({id:Date.now(),msg,sessionId,type,time:new Date().toLocaleTimeString(),read:false});
+  if(notifications.length>50)notifications=notifications.slice(0,50);
+  localStorage.setItem('courtflow_notifs',JSON.stringify(notifications));
+  updateNotifBell();
+  renderNotifPanel();
+}
+
+function updateNotifBell(){
+  const dot=document.getElementById('notifDot');
+  const unread=notifications.filter(n=>!n.read).length;
+  if(dot)dot.style.display=unread?'block':'none';
+}
+
+function toggleNotifPanel(){
+  const panel=document.getElementById('notifPanel');
+  if(!panel)return;
+  const isOpen=panel.style.display!=='none';
+  panel.style.display=isOpen?'none':'block';
+  if(!isOpen){
+    notifications.forEach(n=>n.read=true);
+    localStorage.setItem('courtflow_notifs',JSON.stringify(notifications));
+    updateNotifBell();
+    renderNotifPanel();
+  }
+}
+
+function renderNotifPanel(){
+  const list=document.getElementById('notifList'),empty=document.getElementById('notifEmpty');
+  if(!list)return;
+  if(notifications.length===0){list.innerHTML='';if(empty)empty.style.display='block';return;}
+  if(empty)empty.style.display='none';
+  const icons={join:'👋',request:'🔔',approve:'✅'};
+  list.innerHTML=notifications.slice(0,15).map(n=>`
+    <div class="notif-item ${n.read?'':'unread'}" onclick="handleNotifClick(${n.sessionId})">
+      <span style="font-size:1rem;flex-shrink:0;">${icons[n.type]||'📌'}</span>
+      <div style="flex:1;">
+        <div style="font-size:0.82rem;font-weight:${n.read?'400':'600'};">${n.msg}</div>
+        <div style="font-family:var(--mono);font-size:0.55rem;color:var(--muted);margin-top:2px;">${n.time}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function handleNotifClick(sessionId){
+  document.getElementById('notifPanel').style.display='none';
+  const s=db.sessions.find(s=>s.id===sessionId);
+  if(s){openSession(sessionId);switchInnerTab('invite-tab');}
+}
+
+function clearAllNotifs(){
+  notifications=[];localStorage.setItem('courtflow_notifs',JSON.stringify(notifications));
+  updateNotifBell();renderNotifPanel();showToast('Notifications cleared');
+}
+
+// Close notif panel when clicking outside
+document.addEventListener('click',e=>{
+  const panel=document.getElementById('notifPanel');
+  const bell=panel?.previousElementSibling;
+  if(panel&&panel.style.display!=='none'&&!panel.contains(e.target)&&!bell?.contains(e.target))
+    panel.style.display='none';
+});
+
+// PROFILE
+function saveProfile(){
+  const user=getCurrentUser();if(!user)return;
+  user.name=document.getElementById('profileNameInput').value.trim()||user.name;
+  user.email=document.getElementById('profileEmailInput').value.trim()||user.email;
+  saveDB();initApp();showToast('Profile saved! ✅');
+}
+
+// MODAL & MISC
+function closeModal(id){
+  const el=document.getElementById(id);
+  if(!el)return;
+  el.classList.remove('open');
+  el.style.display='none';
+}
+function copyRoomCode(){const u=getCurrentUser();navigator.clipboard?.writeText(u?.roomCode||'').then(()=>showToast('Code copied! 📋')).catch(()=>showToast(`Code: ${u?.roomCode}`,'info'));}
+function copySessionCode(){navigator.clipboard?.writeText(currentSession?.roomCode||'').then(()=>showToast('Code copied! 📋')).catch(()=>showToast(`Code: ${currentSession?.roomCode}`,'info'));}
+function copyInviteLink(){const l=`courtflow.app/join/${currentSession?.roomCode}`;navigator.clipboard?.writeText(l).then(()=>showToast('Link copied! 🔗')).catch(()=>showToast(l,'info'));}
+function clearAllData(){localStorage.removeItem(STORAGE);location.reload();}
+
+function renderAll(){
+  const user=getCurrentUser();
+  const mySessions=db.sessions.filter(s=>s.ownerId===user?.id);
+  try{renderDashboard();}catch(e){console.error('renderDashboard:',e);}
+  try{renderSessions();}catch(e){console.error('renderSessions:',e);}
+  const activeCount=mySessions.filter(s=>s.status==='active').length;
+  const badge=document.getElementById('activeSessionBadge');
+  if(badge){
+    badge.textContent=activeCount;
+    badge.style.display=activeCount>0?'inline':'none';
+  }
+  try{updateNotifBell();}catch(e){}
+  try{renderNotifPanel();}catch(e){}
+}
+
+document.querySelectorAll('.modal-overlay').forEach(o=>{o.addEventListener('click',e=>{if(e.target===o){o.classList.remove('open');o.style.display='none';}});});
+
+// Enter key for login fields only
+document.getElementById('loginPassword')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();login();}});
+document.getElementById('loginEmail')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();document.getElementById('loginPassword')?.focus();}});
+document.getElementById('signupPassword')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();signup();}});
+
+// Auto login
+try {
+  if(db.currentUser){
+    const u=db.users.find(u=>u.id===db.currentUser);
+    if(u){ initApp(); showApp(); }
+    else { db.currentUser=null; saveDB(); }
+  }
+} catch(e){
+  console.error('Auto login error:',e);
+  db.currentUser=null;
+  saveDB();
+  showPage('page-login');
+}
